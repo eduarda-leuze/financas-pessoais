@@ -65,20 +65,26 @@ function isDateSerial(v: RawCell): v is number {
   return typeof v === 'number' && v > 40000 && v < 60000
 }
 
+function clampDate(y: number, m: number, d: number): string {
+  const last = new Date(y, m, 0).getDate()
+  const day = Math.min(d, last)
+  return `${y}-${String(m).padStart(2, '0')}-${String(day).padStart(2, '0')}`
+}
+
 function parseVenc(v: RawCell, year: number, _month: number): string | null {
   if (v === null) return null
   if (isDateSerial(v)) {
     const d = XLSX.SSF.parse_date_code(v)
-    if (d) return `${d.y}-${String(d.m).padStart(2, '0')}-${String(d.d).padStart(2, '0')}`
+    if (d) return clampDate(d.y, d.m, d.d)
   }
   if (typeof v === 'string') {
     const m2 = v.match(/^(\d{1,2})\/(\d{1,2})\/(\d{2,4})$/)
     if (m2) {
-      const y = m2[3].length === 2 ? '20' + m2[3] : m2[3]
-      return `${y}-${m2[2].padStart(2, '0')}-${m2[1].padStart(2, '0')}`
+      const y = parseInt(m2[3].length === 2 ? '20' + m2[3] : m2[3])
+      return clampDate(y, parseInt(m2[2]), parseInt(m2[1]))
     }
     const m1 = v.match(/^(\d{1,2})\/(\d{1,2})$/)
-    if (m1) return `${year}-${m1[2].padStart(2, '0')}-${m1[1].padStart(2, '0')}`
+    if (m1) return clampDate(year, parseInt(m1[2]), parseInt(m1[1]))
   }
   return null
 }
