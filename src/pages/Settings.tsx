@@ -14,7 +14,7 @@ export function Settings() {
   const [newCatName, setNewCatName] = useState('')
   const [newCatColor, setNewCatColor] = useState(COLORS[0])
   const [newCatIcon, setNewCatIcon] = useState('📦')
-  const [newCatType, setNewCatType] = useState<'expense' | 'income'>('expense')
+  const [newCatType, setNewCatType] = useState<'expense' | 'income' | 'savings'>('expense')
   const [saving, setSaving] = useState(false)
 
   const handleAddCategory = async () => {
@@ -40,8 +40,9 @@ export function Settings() {
     await loadCategories()
   }
 
-  const expenseCategories = categories.filter(c => c.type === 'expense')
-  const incomeCategories = categories.filter(c => c.type === 'income')
+  const expenseCategories  = categories.filter(c => c.type === 'expense')
+  const incomeCategories   = categories.filter(c => c.type === 'income')
+  const savingsCategories  = categories.filter(c => c.type === 'savings')
 
   return (
     <div className="pb-4">
@@ -77,17 +78,21 @@ export function Settings() {
                 />
               </div>
               <div className="flex gap-2">
-                {(['expense', 'income'] as const).map(t => (
+                {([
+                  { v: 'expense',  label: 'Gasto'    },
+                  { v: 'income',   label: 'Receita'  },
+                  { v: 'savings',  label: 'Poupança' },
+                ] as const).map(({ v, label }) => (
                   <button
-                    key={t}
-                    onClick={() => setNewCatType(t)}
+                    key={v}
+                    onClick={() => setNewCatType(v)}
                     className={`flex-1 py-2 rounded-lg text-xs font-medium border transition-colors ${
-                      newCatType === t
+                      newCatType === v
                         ? 'bg-green-500/20 border-green-500/30 text-green-400'
                         : 'border-[#2a2a2a] text-zinc-500'
                     }`}
                   >
-                    {t === 'expense' ? 'Gasto' : 'Receita'}
+                    {label}
                   </button>
                 ))}
               </div>
@@ -112,13 +117,15 @@ export function Settings() {
           )}
 
           <div className="divide-y divide-[#1f1f1f]">
-            {[...expenseCategories, ...incomeCategories].map(cat => (
+            {[...expenseCategories, ...incomeCategories, ...savingsCategories].map(cat => (
               <div key={cat.id} className="flex items-center gap-3 px-4 py-3">
                 <div className="w-2.5 h-2.5 rounded-full" style={{ backgroundColor: cat.color }} />
                 <span className="text-base">{cat.icon}</span>
                 <div className="flex-1">
                   <p className="text-sm text-white">{cat.name}</p>
-                  <p className="text-[11px] text-zinc-600">{cat.type === 'expense' ? 'Gasto' : 'Receita'}</p>
+                  <p className="text-[11px] text-zinc-600">
+                    {cat.type === 'expense' ? 'Gasto' : cat.type === 'income' ? 'Receita' : 'Poupança'}
+                  </p>
                 </div>
                 {cat.name !== 'Sem categoria' && (
                   <button

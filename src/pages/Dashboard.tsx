@@ -21,9 +21,10 @@ export function Dashboard() {
   const [showModal, setShowModal] = useState(false)
   const [modalType, setModalType] = useState<TransactionType>('expense')
 
-  const income  = transactions.filter(t => t.type === 'income').reduce((s, t) => s + t.amount, 0)
-  const expense = transactions.filter(t => t.type === 'expense').reduce((s, t) => s + t.amount, 0)
-  const balance = income - expense
+  const income   = transactions.filter(t => t.type === 'income').reduce((s, t) => s + t.amount, 0)
+  const savings  = transactions.filter(t => t.category?.type === 'savings').reduce((s, t) => s + t.amount, 0)
+  const expense  = transactions.filter(t => t.type === 'expense' && t.category?.type !== 'savings').reduce((s, t) => s + t.amount, 0)
+  const balance  = income - expense - savings
 
   const recent = [...transactions]
     .sort((a, b) => (b.created_at || '').localeCompare(a.created_at || ''))
@@ -62,6 +63,7 @@ export function Dashboard() {
             {/* Row 1: KPI cards */}
             <KpiCards
               income={income} expense={expense} balance={balance}
+              savings={savings}
               prevIncome={prevIncome} prevExpense={prevExpense}
             />
 

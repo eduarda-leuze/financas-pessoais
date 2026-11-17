@@ -5,6 +5,7 @@ interface KpiCardsProps {
   income:      number
   expense:     number
   balance:     number
+  savings:     number
   prevIncome:  number
   prevExpense: number
 }
@@ -57,9 +58,8 @@ function Card({ label, value, icon, iconBg, valueColor = 'text-white', delta, su
   )
 }
 
-export function KpiCards({ income, expense, balance, prevIncome, prevExpense }: KpiCardsProps) {
-  const saved    = Math.max(0, income - expense)
-  const savePct  = income > 0 ? (saved / income) * 100 : 0
+export function KpiCards({ income, expense, balance, savings, prevIncome, prevExpense }: KpiCardsProps) {
+  const savePct  = income > 0 ? (savings / income) * 100 : 0
   const prevBal  = prevIncome - prevExpense
 
   return (
@@ -89,17 +89,12 @@ export function KpiCards({ income, expense, balance, prevIncome, prevExpense }: 
         delta={<Delta curr={expense} prev={prevExpense} inverse />}
       />
       <Card
-        label="Poupado"
-        value={saved}
+        label="Poupança"
+        value={savings}
         icon={<PiggyBank size={17} className="text-amber-400" />}
         iconBg="bg-amber-500/10"
-        valueColor={saved > 0 ? 'text-amber-400' : 'text-zinc-500'}
-        sub={income > 0 ? `${savePct.toFixed(0)}% da receita` : undefined}
-        delta={
-          prevIncome > 0 ? (
-            <Delta curr={saved} prev={Math.max(0, prevIncome - prevExpense)} />
-          ) : undefined
-        }
+        valueColor={savings > 0 ? 'text-amber-400' : 'text-zinc-500'}
+        sub={income > 0 && savings > 0 ? `${savePct.toFixed(0)}% da receita` : undefined}
       />
     </div>
   )

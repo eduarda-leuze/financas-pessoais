@@ -1,4 +1,5 @@
 export type TransactionType = 'expense' | 'income'
+export type CategoryType = 'expense' | 'income' | 'savings'
 export type TransactionStatus = 'paid' | 'pending' | 'overdue'
 export type TransactionSource = 'manual' | 'import'
 export type ImportFileType = 'pdf' | 'ofx' | 'csv'
@@ -8,7 +9,7 @@ export interface Category {
   id: string
   user_id?: string
   name: string
-  type: TransactionType
+  type: CategoryType
   color: string
   icon: string
   keywords: string[]

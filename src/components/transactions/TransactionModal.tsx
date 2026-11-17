@@ -25,7 +25,10 @@ export function TransactionModal({ onClose, defaultType = 'expense', transaction
   const [saving, setSaving] = useState(false)
 
   const { month, year } = getCurrentMonthYear()
-  const filteredCats = categories.filter(c => c.type === type)
+  // savings categories shown when type=expense (savings is money leaving)
+  const filteredCats = categories.filter(c =>
+    c.type === type || (type === 'expense' && c.type === 'savings')
+  )
 
   useEffect(() => {
     if (!isEdit) setCategoryId('')
