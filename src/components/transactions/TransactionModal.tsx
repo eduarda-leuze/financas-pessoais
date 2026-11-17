@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import { X, ArrowDownCircle, ArrowUpCircle, Trash2 } from 'lucide-react'
+import { X, ArrowDownCircle, ArrowUpCircle, Trash2, Receipt, ShoppingBag } from 'lucide-react'
 import { useApp } from '../../context/AppContext'
 import { getCurrentMonthYear } from '../../lib/utils'
 import type { Transaction, TransactionType } from '../../types'
@@ -7,14 +7,16 @@ import type { Transaction, TransactionType } from '../../types'
 interface Props {
   onClose: () => void
   defaultType?: TransactionType
+  defaultIsBill?: boolean
   transaction?: Transaction
 }
 
-export function TransactionModal({ onClose, defaultType = 'expense', transaction }: Props) {
+export function TransactionModal({ onClose, defaultType = 'expense', defaultIsBill = false, transaction }: Props) {
   const { categories, addTransaction, updateTransaction, deleteTransaction, currentMonth, currentYear } = useApp()
   const isEdit = !!transaction
   const [confirmDelete, setConfirmDelete] = useState(false)
   const [type, setType] = useState<TransactionType>(transaction?.type ?? defaultType)
+  const [isBill, setIsBill] = useState<boolean>(transaction?.is_bill ?? defaultIsBill)
   const [description, setDescription] = useState(transaction?.description ?? '')
   const [amount, setAmount] = useState(transaction ? String(transaction.amount) : '')
   const [categoryId, setCategoryId] = useState(transaction?.category_id ?? '')
@@ -37,12 +39,14 @@ export function TransactionModal({ onClose, defaultType = 'expense', transaction
   const handleSave = async () => {
     if (!description.trim() || !amount) return
     setSaving(true)
+    const effectiveStatus = (type === 'expense' && !isBill) ? 'paid' : status
     if (isEdit) {
       await updateTransaction(transaction.id, {
         description: description.trim(),
         amount: parseFloat(amount.replace(',', '.')),
         type,
-        status,
+        status: effectiveStatus,
+        is_bill: isBill,
         category_id: categoryId,
         due_date: dueDate || undefined,
       })
@@ -51,7 +55,8 @@ export function TransactionModal({ onClose, defaultType = 'expense', transaction
         description: description.trim(),
         amount: parseFloat(amount.replace(',', '.')),
         type,
-        status,
+        status: effectiveStatus,
+        is_bill: isBill,
         category_id: categoryId,
         due_date: dueDate || undefined,
         month: currentMonth || month,
@@ -108,6 +113,32 @@ export function TransactionModal({ onClose, defaultType = 'expense', transaction
           </div>
         </div>
 
+        {/* Bill toggle — only for expenses */}
+        {type === 'expense' && (
+          <div className="px-5 mb-4">
+            <div className="flex bg-[#1a1a1a] rounded-2xl p-1 border border-[#252525]">
+              <button
+                onClick={() => setIsBill(false)}
+                className={`flex-1 flex items-center justify-center gap-2 py-2 rounded-xl text-xs font-medium transition-all ${
+                  !isBill ? 'bg-[#252525] text-white' : 'text-zinc-600'
+                }`}
+              >
+                <ShoppingBag size={13} className={!isBill ? 'text-orange-400' : ''} />
+                Gasto
+              </button>
+              <button
+                onClick={() => setIsBill(true)}
+                className={`flex-1 flex items-center justify-center gap-2 py-2 rounded-xl text-xs font-medium transition-all ${
+                  isBill ? 'bg-[#252525] text-white' : 'text-zinc-600'
+                }`}
+              >
+                <Receipt size={13} className={isBill ? 'text-blue-400' : ''} />
+                Conta a pagar
+              </button>
+            </div>
+          </div>
+        )}
+
         {/* Fields */}
         <div className="px-5 space-y-3 pb-6" style={{ paddingBottom: 'calc(1.5rem + env(safe-area-inset-bottom))' }}>
           <div>
@@ -149,7 +180,9 @@ export function TransactionModal({ onClose, defaultType = 'expense', transaction
             </div>
 
             <div>
-              <label className="text-xs text-zinc-500 font-medium mb-1.5 block">{type === 'income' ? 'Data de recebimento' : 'Vencimento'}</label>
+              <label className="text-xs text-zinc-500 font-medium mb-1.5 block">
+                {type === 'income' ? 'Data de recebimento' : isBill ? 'Vencimento' : 'Data do gasto'}
+              </label>
               <input
                 type="date"
                 value={dueDate}
@@ -159,7 +192,7 @@ export function TransactionModal({ onClose, defaultType = 'expense', transaction
             </div>
           </div>
 
-          {type === 'expense' && (
+          {type === 'expense' && isBill && (
             <div className="flex gap-2">
               {(['pending', 'paid'] as const).map(s => (
                 <button

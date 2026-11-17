@@ -39,6 +39,7 @@ export interface Transaction {
   source: TransactionSource
   month: number
   year: number
+  is_bill?: boolean
   notes?: string
   created_at?: string
   category?: Category

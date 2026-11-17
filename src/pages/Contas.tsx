@@ -41,8 +41,8 @@ export function Contas() {
   const [expanded, setExpanded] = useState<string | null>(null)
   const [marking, setMarking] = useState<string | null>(null)
 
-  // only expense transactions (bills)
-  const bills = transactions.filter(t => t.type === 'expense')
+  // only fixed bills (explicitly marked as conta a pagar)
+  const bills = transactions.filter(t => t.type === 'expense' && t.is_bill === true)
   const filtered = filter === 'all' ? bills : bills.filter(t => t.status === filter)
 
   // sort: overdue first, then pending by due_date, then paid
@@ -271,7 +271,7 @@ export function Contas() {
         </div>
       )}
 
-      {showModal && <TransactionModal onClose={() => setShowModal(false)} defaultType="expense" />}
+      {showModal && <TransactionModal onClose={() => setShowModal(false)} defaultType="expense" defaultIsBill={true} />}
     </div>
   )
 }

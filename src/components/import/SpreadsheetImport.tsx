@@ -185,6 +185,7 @@ function parseControl(
         category_id: matchCat?.id ?? expCat?.id ?? cats[0]?.id ?? '',
         due_date:    dueDate,
         source:      'import',
+        is_bill:     true,
         month,
         year,
       })
