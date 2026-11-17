@@ -45,17 +45,19 @@ export function Dashboard() {
       ) : (
         <>
           {/* ── MOBILE layout ── */}
-          <div className="lg:hidden space-y-4 pb-4">
+          <div className="lg:hidden space-y-4 pb-24">
             <SummaryCards balance={balance} income={income} expense={expense} />
-            <StatusSummary transactions={transactions} />
             <QuickActions onExpense={() => openModal('expense')} onIncome={() => openModal('income')} />
-            {transactions.length > 0 && (
-              <>
-                <CategoryChart transactions={transactions} categories={categories} />
-                <InsightsPanel transactions={transactions} categories={categories} />
-              </>
+            {transactions.length > 0 ? (
+              <div className="px-5">
+                <p className="text-[10px] font-semibold text-zinc-600 uppercase tracking-widest mb-3">Últimos lançamentos</p>
+                <div className="space-y-2">
+                  {recent.map(t => <TransactionItem key={t.id} transaction={t} />)}
+                </div>
+              </div>
+            ) : (
+              <EmptyHint />
             )}
-            {transactions.length === 0 && <EmptyHint />}
           </div>
 
           {/* ── DESKTOP layout ── */}

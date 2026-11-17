@@ -102,19 +102,22 @@ export function TransactionItem({ transaction: t }: Props) {
               {isExpense ? '-' : '+'}{formatCurrency(t.amount)}
             </span>
 
-            <button
-              onClick={handleStatusClick}
-              className={`flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold transition-all ${
-                isPaid
-                  ? 'bg-green-500/10 text-green-500 cursor-default'
-                  : isOverdue
-                  ? 'bg-red-500/10 text-red-400 hover:bg-red-500/20'
-                  : 'bg-amber-500/10 text-amber-400 hover:bg-green-500/15 hover:text-green-400'
-              }`}
-            >
-              {isPaid && <Check size={9} strokeWidth={3} />}
-              {isPaid ? 'Pago' : isOverdue ? 'Vencido' : 'Pendente'}
-            </button>
+            {/* Status badge only for bills */}
+            {t.is_bill && (
+              <button
+                onClick={handleStatusClick}
+                className={`flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold transition-all ${
+                  isPaid
+                    ? 'bg-green-500/10 text-green-500 cursor-default'
+                    : isOverdue
+                    ? 'bg-red-500/10 text-red-400 hover:bg-red-500/20'
+                    : 'bg-amber-500/10 text-amber-400 hover:bg-green-500/15 hover:text-green-400'
+                }`}
+              >
+                {isPaid && <Check size={9} strokeWidth={3} />}
+                {isPaid ? 'Pago' : isOverdue ? 'Vencido' : 'Pendente'}
+              </button>
+            )}
           </div>
 
           {/* More button */}
