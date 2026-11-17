@@ -1,16 +1,19 @@
 import { useState, useRef } from 'react'
-import { Upload, AlertCircle, CheckCircle, Trash2 } from 'lucide-react'
+import { Upload, AlertCircle, CheckCircle, Trash2, CreditCard, Building2 } from 'lucide-react'
 import { useApp } from '../../context/AppContext'
 import { parseOFX, parseCSV } from '../../lib/parsers'
 import { categorizeByKeywords } from '../../lib/categorizer'
 import { formatCurrency, formatDate } from '../../lib/utils'
 import type { ExtractedTransaction, ImportFileType } from '../../types'
 
+type StatementType = 'credit' | 'debit'
+
 export function ImportFlow() {
   const { categories, addTransaction, currentMonth, currentYear } = useApp()
   const fileRef = useRef<HTMLInputElement>(null)
   const [step, setStep] = useState<'upload' | 'review'>('upload')
   const [fileType, setFileType] = useState<ImportFileType>('ofx')
+  const [statementType, setStatementType] = useState<StatementType>('debit')
   const [extracted, setExtracted] = useState<ExtractedTransaction[]>([])
   const [processing, setProcessing] = useState(false)
   const [error, setError] = useState('')
@@ -40,10 +43,19 @@ export function ImportFlow() {
       return
     }
 
-    // Auto-categorize
+    // Auto-categorize; credit card → force expense
     const categorized = transactions.map(t => {
       const cat = categorizeByKeywords(t.description, categories)
-      return { ...t, category_id: cat?.id || categories.find(c => c.name === 'Sem categoria')?.id }
+      const expCat = categories.find(c => c.type === 'expense')
+      const forcedCatId = statementType === 'credit'
+        ? (cat?.type === 'expense' ? cat.id : expCat?.id)
+        : cat?.id
+      return {
+        ...t,
+        category_id: forcedCatId || categories.find(c => c.name === 'Sem categoria')?.id,
+        // flag for use at import time
+        _statementType: statementType,
+      }
     })
 
     setExtracted(categorized)
@@ -81,11 +93,13 @@ export function ImportFlow() {
 
     for (const t of selectedItems) {
       const cat = categories.find(c => c.id === t.category_id)
+      const isCredit = (t as ExtractedTransaction & { _statementType?: StatementType })._statementType === 'credit'
+      const txType = isCredit ? 'expense' : (cat?.type === 'income' ? 'income' : 'expense')
       await addTransaction({
         description: t.description,
         amount: t.amount,
         due_date: t.date || undefined,
-        type: cat?.type === 'income' ? 'income' : 'expense',
+        type: txType,
         category_id: t.category_id || categories[0]?.id,
         status: 'pending',
         source: 'import',
@@ -119,7 +133,17 @@ export function ImportFlow() {
       <div className="pb-4">
         <div className="px-4 py-3 border-b border-[#1f1f1f] flex items-center justify-between">
           <div>
-            <h2 className="text-base font-semibold text-white">Revisar importação</h2>
+            <div className="flex items-center gap-2 mb-0.5">
+              <h2 className="text-base font-semibold text-white">Revisar importação</h2>
+              <span className={`flex items-center gap-1 text-[10px] font-semibold px-2 py-0.5 rounded-full ${
+                statementType === 'credit'
+                  ? 'bg-purple-500/15 text-purple-400'
+                  : 'bg-blue-500/15 text-blue-400'
+              }`}>
+                {statementType === 'credit' ? <CreditCard size={10} /> : <Building2 size={10} />}
+                {statementType === 'credit' ? 'Cartão de crédito' : 'Conta débito'}
+              </span>
+            </div>
             <p className="text-xs text-zinc-500">{extracted.length} transações encontradas</p>
           </div>
           <div className="flex gap-2">
@@ -186,9 +210,43 @@ export function ImportFlow() {
     <div className="px-4 py-4 space-y-4">
       <h2 className="text-base font-semibold text-white">Importar fatura / extrato</h2>
 
+      {/* Statement type selector */}
+      <div>
+        <label className="block text-xs text-zinc-500 mb-2">Tipo de extrato</label>
+        <div className="grid grid-cols-2 gap-2">
+          <button
+            onClick={() => setStatementType('credit')}
+            className={`flex items-center justify-center gap-2 py-3 rounded-xl text-sm font-medium border transition-colors ${
+              statementType === 'credit'
+                ? 'bg-purple-500/15 border-purple-500/30 text-purple-300'
+                : 'bg-[#1a1a1a] border-[#2a2a2a] text-zinc-400 hover:text-white'
+            }`}
+          >
+            <CreditCard size={14} />
+            Cartão de crédito
+          </button>
+          <button
+            onClick={() => setStatementType('debit')}
+            className={`flex items-center justify-center gap-2 py-3 rounded-xl text-sm font-medium border transition-colors ${
+              statementType === 'debit'
+                ? 'bg-blue-500/15 border-blue-500/30 text-blue-300'
+                : 'bg-[#1a1a1a] border-[#2a2a2a] text-zinc-400 hover:text-white'
+            }`}
+          >
+            <Building2 size={14} />
+            Conta débito
+          </button>
+        </div>
+        <p className="text-[11px] text-zinc-600 mt-1.5">
+          {statementType === 'credit'
+            ? 'Fatura do cartão — todos os lançamentos entram como gasto'
+            : 'Extrato de conta — entradas viram receita, saídas viram gasto'}
+        </p>
+      </div>
+
       {/* File type selector */}
       <div>
-        <label className="block text-xs text-zinc-500 mb-2">Tipo de arquivo</label>
+        <label className="block text-xs text-zinc-500 mb-2">Formato do arquivo</label>
         <div className="grid grid-cols-3 gap-2">
           {(['ofx', 'csv', 'pdf'] as ImportFileType[]).map(ft => (
             <button
