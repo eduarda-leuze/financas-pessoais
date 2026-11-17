@@ -1,12 +1,13 @@
 import { useState, useRef } from 'react'
 import * as XLSX from 'xlsx'
-import { Upload, CheckCircle, AlertCircle, ArrowRight, FileSpreadsheet, Eye, ChevronDown, ChevronUp } from 'lucide-react'
+import { Upload, CheckCircle, AlertCircle, ArrowRight, FileSpreadsheet, Eye, ChevronDown, ChevronUp, ArrowLeft } from 'lucide-react'
 import { useApp } from '../../context/AppContext'
 import { formatCurrency } from '../../lib/utils'
+import { categorizeByKeywords } from '../../lib/categorizer'
 import type { Transaction } from '../../types'
 
 // ─── Types ───────────────────────────────────────────────────────────────────
-type Step = 'upload' | 'sheets' | 'preview' | 'done'
+type Step = 'upload' | 'sheets' | 'generic' | 'preview' | 'done'
 type RawCell = string | number | boolean | null
 type RawRow  = RawCell[]
 type SheetFormat = 'control' | 'income_pivot' | 'income_detail' | 'empty'
@@ -18,6 +19,13 @@ interface SheetInfo {
   format: SheetFormat
   year: number
   parsed: TxRow[]
+}
+
+interface GenericColMap {
+  desc:   number | null
+  amount: number | null
+  date:   number | null
+  status: number | null
 }
 
 // ─── Constants ───────────────────────────────────────────────────────────────
@@ -128,7 +136,7 @@ function detectFormat(rows: RawRow[]): SheetFormat {
 function parseControl(
   rows: RawRow[],
   year: number,
-  cats: { id: string; name: string; type: string }[],
+  cats: { id: string; name: string; type: string; keywords?: string[] }[],
 ): TxRow[] {
   let headerRow: RawRow = []
   let headerIdx = -1
@@ -164,10 +172,10 @@ function parseControl(
       const statVal = row[col + 2] ?? null
       const paid    = isPaid(statVal) || isPaid(vencVal)
       const dueDate = parseVenc(vencVal, year, month) ?? `${year}-${String(month).padStart(2, '0')}-01`
-      const descN   = norm(desc)
       const matchCat = cats.find(c => {
         const cn = norm(c.name)
-        return cn.includes(descN.slice(0, 4)) || descN.includes(cn.slice(0, 4))
+        const dn = norm(desc)
+        return cn.includes(dn.slice(0, 4)) || dn.includes(cn.slice(0, 4))
       })
       result.push({
         description: desc,
@@ -282,6 +290,67 @@ function parseIncomeDetail(
   return result
 }
 
+// ─── Generic flat-list parser ─────────────────────────────────────────────────
+function parseGeneric(
+  rows: RawRow[],
+  colMap: GenericColMap,
+  skipHeader: boolean,
+  defaultType: 'expense' | 'income',
+  defaultYear: number,
+  defaultMonth: number,
+  cats: { id: string; name: string; type: string; keywords?: string[] }[],
+): TxRow[] {
+  if (colMap.desc === null || colMap.amount === null) return []
+  const data = skipHeader ? rows.slice(1) : rows
+  const defCat = cats.find(c => c.type === defaultType) ?? cats[0]
+  const result: TxRow[] = []
+
+  for (const row of data) {
+    const descRaw = row[colMap.desc]
+    const desc = String(descRaw ?? '').trim()
+    if (!desc || shouldSkipDesc(desc)) continue
+    const amount = toAmount(row[colMap.amount])
+    if (amount <= 0) continue
+
+    let month = defaultMonth
+    let year  = defaultYear
+    let dueDate: string | undefined
+
+    if (colMap.date !== null) {
+      const parsed = parseVenc(row[colMap.date], defaultYear, defaultMonth)
+      if (parsed) {
+        dueDate = parsed
+        const parts = parsed.split('-')
+        year  = parseInt(parts[0])
+        month = parseInt(parts[1])
+      }
+    }
+
+    const status: 'paid' | 'pending' = colMap.status !== null
+      ? (isPaid(row[colMap.status]) ? 'paid' : 'pending')
+      : 'pending'
+
+    const matchCat = categorizeByKeywords(desc, cats as Parameters<typeof categorizeByKeywords>[1])
+      ?? cats.find(c => {
+           const cn = norm(c.name); const dn = norm(desc)
+           return cn.includes(dn.slice(0, 4)) || dn.includes(cn.slice(0, 4))
+         })
+
+    result.push({
+      description: desc,
+      amount,
+      type:        defaultType,
+      status,
+      category_id: matchCat?.id ?? defCat?.id ?? cats[0]?.id ?? '',
+      due_date:    dueDate,
+      source:      'import',
+      month,
+      year,
+    })
+  }
+  return result
+}
+
 // ─── Component ───────────────────────────────────────────────────────────────
 export function SpreadsheetImport() {
   const { categories, bulkImport } = useApp()
@@ -296,6 +365,14 @@ export function SpreadsheetImport() {
   const [error,         setError]         = useState('')
   const [openSheet,     setOpenSheet]     = useState<string | null>(null)
   const [yearOverrides, setYearOverrides] = useState<Record<string, number>>({})
+
+  // Generic mode state
+  const [genericSheet,  setGenericSheet]  = useState('')
+  const [colMap,        setColMap]        = useState<GenericColMap>({ desc: null, amount: null, date: null, status: null })
+  const [skipHeader,    setSkipHeader]    = useState(true)
+  const [genericType,   setGenericType]   = useState<'expense' | 'income'>('expense')
+  const [genericYear,   setGenericYear]   = useState(new Date().getFullYear())
+  const [genericMonth,  setGenericMonth]  = useState(new Date().getMonth() + 1)
 
   const handleFile = async (file: File) => {
     setError(''); setProcessing(true); setFileName(file.name)
@@ -315,9 +392,16 @@ export function SpreadsheetImport() {
         return { name, rows, format, year, parsed: p }
       })
       setSheets(parsed)
-      setStep('sheets')
+      const hasControl = parsed.some(s => s.format === 'control')
+      if (!hasControl && parsed.length > 0) {
+        // No CONTROLE format found → go straight to generic column mapper
+        setGenericSheet(parsed[0].name)
+        setStep('generic')
+      } else {
+        setStep('sheets')
+      }
     } catch (e) {
-      setError('Não foi possível ler o arquivo. Certifique-se de usar .xlsx ou .xls.')
+      setError('Não foi possível ler o arquivo. Certifique-se de usar .xlsx, .xls ou .csv.')
       console.error(e)
     }
     setProcessing(false)
@@ -328,13 +412,21 @@ export function SpreadsheetImport() {
       if (s.format === 'empty' || s.format === 'income_pivot' || s.format === 'income_detail') return []
       const yr = yearOverrides[s.name] ?? s.year
       if (yr === s.year) return s.parsed
-      return s.format === 'control'       ? parseControl(s.rows, yr, categories)
-           : s.format === 'income_pivot'  ? parseIncomePivot(s.rows, yr, categories)
-           : s.format === 'income_detail' ? parseIncomeDetail(s.rows, yr, categories)
-           : []
+      return s.format === 'control' ? parseControl(s.rows, yr, categories) : []
     })
     setAllRows(all)
     setStep('preview')
+  }
+
+  const handleImportGeneric = async () => {
+    const sheet = sheets.find(s => s.name === genericSheet)
+    if (!sheet) return
+    setImporting(true)
+    const rows = parseGeneric(sheet.rows, colMap, skipHeader, genericType, genericYear, genericMonth, categories)
+    const res = await bulkImport(rows)
+    setResult(res)
+    setImporting(false)
+    setStep('done')
   }
 
   const handleImport = async () => {
@@ -433,7 +525,183 @@ export function SpreadsheetImport() {
     )
   }
 
-  // ── SHEETS OVERVIEW ───────────────────────────────────────────────────────
+  // ── GENERIC COLUMN MAPPER ─────────────────────────────────────────────────
+  if (step === 'generic') {
+    const sheet = sheets.find(s => s.name === genericSheet) ?? sheets[0]
+    if (!sheet) return null
+    const previewRows = sheet.rows.slice(0, 8)
+    const colCount = Math.max(...previewRows.map(r => r.length), 1)
+    const colLetters = Array.from({ length: colCount }, (_, i) => String.fromCharCode(65 + i))
+
+    // Guess column header names from first row if skipHeader
+    const headerRow = skipHeader ? previewRows[0] : null
+    const colLabel = (i: number) => {
+      if (headerRow) {
+        const h = String(headerRow[i] ?? '').trim()
+        if (h) return `${colLetters[i]} — ${h}`
+      }
+      return colLetters[i]
+    }
+
+    const colOptions = colLetters.map((_, i) => ({ value: i, label: colLabel(i) }))
+
+    // Preview the parsed result with current settings
+    const previewParsed = parseGeneric(sheet.rows, colMap, skipHeader, genericType, genericYear, genericMonth, categories)
+
+    const setCol = (field: keyof GenericColMap) => (val: string) =>
+      setColMap(m => ({ ...m, [field]: val === '' ? null : parseInt(val) }))
+
+    return (
+      <div className="pb-32">
+        <div className="px-5 pt-4 pb-3 border-b border-[#1f1f1f]">
+          <div className="flex items-center gap-2 mb-1">
+            <button onClick={() => setStep('upload')} className="text-zinc-600 hover:text-zinc-400 transition-colors">
+              <ArrowLeft size={15} />
+            </button>
+            <h2 className="text-base font-semibold text-white">Mapear colunas</h2>
+          </div>
+          <p className="text-xs text-zinc-500">{fileName}</p>
+        </div>
+
+        <div className="px-5 py-4 space-y-5">
+          {/* Sheet picker */}
+          {sheets.length > 1 && (
+            <div>
+              <label className="text-xs text-zinc-500 font-medium mb-1.5 block">Aba</label>
+              <select value={genericSheet} onChange={e => setGenericSheet(e.target.value)}
+                className="w-full bg-[#1a1a1a] border border-[#252525] rounded-xl px-4 py-2.5 text-sm text-white focus:outline-none appearance-none">
+                {sheets.map(s => <option key={s.name} value={s.name}>{s.name}</option>)}
+              </select>
+            </div>
+          )}
+
+          {/* Preview table */}
+          <div>
+            <div className="flex items-center justify-between mb-2">
+              <label className="text-xs text-zinc-500 font-medium">Prévia dos dados</label>
+              <label className="flex items-center gap-1.5 text-xs text-zinc-500 cursor-pointer">
+                <input type="checkbox" checked={skipHeader} onChange={e => setSkipHeader(e.target.checked)}
+                  className="w-3.5 h-3.5 rounded accent-green-500" />
+                1ª linha é cabeçalho
+              </label>
+            </div>
+            <div className="overflow-x-auto rounded-xl border border-[#252525]">
+              <table className="text-xs text-zinc-400 w-max min-w-full">
+                <thead>
+                  <tr className="bg-[#1a1a1a] border-b border-[#252525]">
+                    {colLetters.map(l => (
+                      <th key={l} className="px-3 py-2 text-zinc-600 font-semibold text-center">{l}</th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-[#1f1f1f]">
+                  {previewRows.map((row, ri) => (
+                    <tr key={ri} className={ri === 0 && skipHeader ? 'bg-[#161616] text-zinc-600' : 'bg-[#111]'}>
+                      {colLetters.map((_, ci) => (
+                        <td key={ci} className="px-3 py-1.5 max-w-[120px] truncate whitespace-nowrap">
+                          {String(row[ci] ?? '')}
+                        </td>
+                      ))}
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+          {/* Column mapping */}
+          <div>
+            <p className="text-xs text-zinc-500 font-medium mb-3">Qual coluna corresponde a cada campo?</p>
+            <div className="space-y-3">
+              {([
+                { field: 'desc'   as const, label: 'Descrição *',   required: true  },
+                { field: 'amount' as const, label: 'Valor R$ *',    required: true  },
+                { field: 'date'   as const, label: 'Data',          required: false },
+                { field: 'status' as const, label: 'Status (pago)', required: false },
+              ]).map(({ field, label, required }) => (
+                <div key={field} className="flex items-center gap-3">
+                  <span className="text-xs text-zinc-400 w-28 shrink-0">{label}</span>
+                  <select
+                    value={colMap[field] ?? ''}
+                    onChange={e => setCol(field)(e.target.value)}
+                    className={`flex-1 bg-[#1a1a1a] border rounded-xl px-3 py-2 text-xs focus:outline-none appearance-none transition-colors ${
+                      required && colMap[field] === null
+                        ? 'border-zinc-700 text-zinc-600'
+                        : 'border-[#252525] text-white'
+                    }`}
+                  >
+                    <option value="">{required ? '— selecionar —' : '— não usar —'}</option>
+                    {colOptions.map(o => (
+                      <option key={o.value} value={o.value}>{o.label}</option>
+                    ))}
+                  </select>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          {/* Type + Year/Month defaults */}
+          <div className="space-y-3">
+            <div>
+              <p className="text-xs text-zinc-500 font-medium mb-2">Tipo padrão dos lançamentos</p>
+              <div className="flex gap-2">
+                {(['expense', 'income'] as const).map(t => (
+                  <button key={t} onClick={() => setGenericType(t)}
+                    className={`flex-1 py-2 rounded-xl text-xs font-medium border transition-colors ${
+                      genericType === t ? 'bg-green-500/20 border-green-500/30 text-green-400' : 'border-[#252525] text-zinc-500'
+                    }`}>
+                    {t === 'expense' ? 'Gasto' : 'Receita'}
+                  </button>
+                ))}
+              </div>
+            </div>
+            {colMap.date === null && (
+              <div>
+                <p className="text-xs text-zinc-500 font-medium mb-2">Mês/ano dos lançamentos</p>
+                <div className="flex gap-2">
+                  <select value={genericMonth} onChange={e => setGenericMonth(parseInt(e.target.value))}
+                    className="flex-1 bg-[#1a1a1a] border border-[#252525] rounded-xl px-3 py-2 text-xs text-white focus:outline-none appearance-none">
+                    {['Jan','Fev','Mar','Abr','Mai','Jun','Jul','Ago','Set','Out','Nov','Dez'].map((m, i) => (
+                      <option key={i+1} value={i+1}>{m}</option>
+                    ))}
+                  </select>
+                  <input type="number" value={genericYear} onChange={e => setGenericYear(parseInt(e.target.value) || genericYear)}
+                    className="w-24 bg-[#1a1a1a] border border-[#252525] rounded-xl px-3 py-2 text-xs text-white text-center focus:outline-none" />
+                </div>
+              </div>
+            )}
+          </div>
+
+          {/* Live count */}
+          {previewParsed.length > 0 && (
+            <div className="bg-green-500/10 border border-green-500/15 rounded-xl p-3 flex items-center gap-2">
+              <CheckCircle size={14} className="text-green-400 shrink-0" />
+              <p className="text-xs text-green-400">{previewParsed.length} lançamentos prontos para importar</p>
+            </div>
+          )}
+          {colMap.desc !== null && colMap.amount !== null && previewParsed.length === 0 && (
+            <div className="bg-amber-500/10 border border-amber-500/15 rounded-xl p-3 flex items-center gap-2">
+              <AlertCircle size={14} className="text-amber-400 shrink-0" />
+              <p className="text-xs text-amber-400">Nenhum lançamento válido encontrado. Verifique o mapeamento.</p>
+            </div>
+          )}
+        </div>
+
+        <div className="fixed bottom-[72px] left-0 right-0 max-w-lg mx-auto px-5 pb-4 pt-3 bg-[#0d0d0d] border-t border-[#1f1f1f] z-10 lg:bottom-0">
+          <button
+            onClick={handleImportGeneric}
+            disabled={importing || colMap.desc === null || colMap.amount === null || previewParsed.length === 0}
+            className="w-full py-3.5 rounded-xl bg-green-500 text-black font-semibold text-sm disabled:opacity-40 flex items-center justify-center gap-2">
+            {importing
+              ? <><div className="w-4 h-4 border-2 border-black border-t-transparent rounded-full animate-spin" />Importando...</>
+              : <>Importar {previewParsed.length} lançamentos <ArrowRight size={14} /></>}
+          </button>
+        </div>
+      </div>
+    )
+  }
+
+  // ── SHEETS OVERVIEW (CONTROLE format) ─────────────────────────────────────
   if (step === 'sheets') {
     const fmtLabel: Record<SheetFormat, string> = {
       control: 'controle mensal', income_pivot: 'receita (ignorada)',
@@ -510,7 +778,7 @@ export function SpreadsheetImport() {
     <div className="px-5 py-4 space-y-4">
       <div>
         <h2 className="text-base font-semibold text-white">Importar planilha</h2>
-        <p className="text-sm text-zinc-500 mt-0.5">Envia a planilha com as abas de controle mensal</p>
+        <p className="text-sm text-zinc-500 mt-0.5">Funciona com qualquer planilha — detecta o formato ou deixa você mapear as colunas</p>
       </div>
       <div onDrop={e => { e.preventDefault(); e.dataTransfer.files[0] && handleFile(e.dataTransfer.files[0]) }}
         onDragOver={e => e.preventDefault()} onClick={() => fileRef.current?.click()}
@@ -527,11 +795,11 @@ export function SpreadsheetImport() {
         </div>
       )}
       <div className="bg-[#161616] rounded-2xl p-4 border border-[#252525] space-y-2">
-        <p className="text-xs text-zinc-500 font-semibold uppercase tracking-wide">O que é importado</p>
+        <p className="text-xs text-zinc-500 font-semibold uppercase tracking-wide">Como funciona</p>
         <div className="space-y-1.5 text-xs text-zinc-400">
-          <p>✓ Abas CONTROLE 2022 / 2024 / 2025 / 2026 — gastos mensais com status</p>
-          <p>✓ Vencimentos e status pago/pendente preservados</p>
-          <p>✗ Abas de receita e planejamento são ignoradas</p>
+          <p>✓ Formato CONTROLE (planilha com abas mensais) — detectado automaticamente</p>
+          <p>✓ Qualquer planilha simples — você escolhe qual coluna é descrição, valor e data</p>
+          <p>✓ Categorias atribuídas automaticamente por palavras-chave</p>
         </div>
       </div>
     </div>

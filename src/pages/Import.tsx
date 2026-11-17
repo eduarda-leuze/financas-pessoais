@@ -19,7 +19,7 @@ export function Import() {
               tab === 'spreadsheet' ? 'bg-[#252525] text-white' : 'text-zinc-500 hover:text-zinc-300'
             }`}
           >
-            Minha planilha
+            Planilha Excel
           </button>
           <button
             onClick={() => setTab('bank')}
