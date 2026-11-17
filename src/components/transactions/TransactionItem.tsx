@@ -15,10 +15,11 @@ export function TransactionItem({ transaction: t }: Props) {
   const [newTitle, setNewTitle]       = useState(t.description)
   const inputRef = useRef<HTMLInputElement>(null)
 
-  const days      = t.due_date ? getDaysUntilDue(t.due_date) : null
   const isExpense = t.type === 'expense'
   const isPaid    = t.status === 'paid'
   const isOverdue = t.status === 'overdue'
+  const isBill    = t.is_bill === true
+  const days      = isBill && t.due_date ? getDaysUntilDue(t.due_date) : null
 
   const handleStatusClick = (e: React.MouseEvent) => {
     e.stopPropagation()
@@ -73,24 +74,19 @@ export function TransactionItem({ transaction: t }: Props) {
               <span className="text-[11px] text-zinc-600">
                 {t.category?.name || 'Sem categoria'}
               </span>
-              {t.is_bill && (
-                <>
-                  <span className="text-zinc-800">·</span>
-                  <span className="text-[10px] font-medium text-blue-400/70">conta</span>
-                </>
-              )}
-              {t.due_date && (
+                {t.due_date && (
                 <>
                   <span className="text-zinc-800">·</span>
                   <span className="text-[11px] text-zinc-600">{formatDate(t.due_date)}</span>
                 </>
               )}
-              {days !== null && !isPaid && days <= 3 && days >= 0 && (
+              {/* Due date warnings only for bills */}
+              {isBill && days !== null && !isPaid && days <= 3 && days >= 0 && (
                 <span className="text-[10px] font-semibold text-amber-400">
                   {days === 0 ? 'hoje' : `${days}d`}
                 </span>
               )}
-              {isOverdue && (
+              {isBill && isOverdue && (
                 <span className="text-[10px] font-semibold text-red-400">vencida</span>
               )}
             </div>
@@ -103,7 +99,7 @@ export function TransactionItem({ transaction: t }: Props) {
             </span>
 
             {/* Status badge only for bills */}
-            {t.is_bill && (
+            {isBill && (
               <button
                 onClick={handleStatusClick}
                 className={`flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold transition-all ${
@@ -160,7 +156,7 @@ export function TransactionItem({ transaction: t }: Props) {
                   <Pencil size={11} />
                   Renomear
                 </button>
-                {isExpense && !t.is_bill && (
+                {isExpense && !isBill && (
                   <button
                     onClick={handleConvertToBill}
                     className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-blue-500/10 border border-blue-500/20 text-xs text-blue-400 hover:bg-blue-500/15 transition-colors"
