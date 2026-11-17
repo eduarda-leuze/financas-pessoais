@@ -8,11 +8,9 @@ export function AppLayout() {
       <Sidebar />
 
       {/* Main content — offset by sidebar width on desktop */}
-      <div className="lg:ml-56">
-        <div className="max-w-2xl mx-auto lg:mx-0 lg:max-w-none pb-[72px] lg:pb-0 lg:px-0">
-          <div className="lg:max-w-3xl">
-            <Outlet />
-          </div>
+      <div className="lg:ml-56 min-h-dvh">
+        <div className="max-w-lg mx-auto lg:max-w-none lg:mx-0 pb-[72px] lg:pb-0">
+          <Outlet />
         </div>
       </div>
 

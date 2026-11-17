@@ -35,38 +35,52 @@ export function CategoryChart({ transactions, categories }: Props) {
   if (!data.length) return null
 
   return (
-    <div className="px-5">
-      <p className="text-xs font-semibold text-zinc-500 uppercase tracking-widest mb-3">Gastos por categoria</p>
-      <div className="bg-[#161616] rounded-2xl border border-[#252525] p-4">
-        <div className="flex items-center gap-4">
+    <div className="px-5 lg:px-0">
+      <div className="bg-[#161616] rounded-2xl border border-[#252525] p-4 lg:p-5">
+        {/* Mobile: compact horizontal layout */}
+        <div className="flex items-center gap-4 lg:hidden">
           <div className="shrink-0">
             <ResponsiveContainer width={110} height={110}>
               <PieChart>
-                <Pie
-                  data={data}
-                  cx="50%"
-                  cy="50%"
-                  innerRadius={32}
-                  outerRadius={50}
-                  paddingAngle={3}
-                  dataKey="value"
-                  stroke="none"
-                >
+                <Pie data={data} cx="50%" cy="50%" innerRadius={32} outerRadius={50} paddingAngle={3} dataKey="value" stroke="none">
                   {data.map((entry, i) => <Cell key={i} fill={entry.color} />)}
                 </Pie>
                 <Tooltip content={<CustomTooltip />} />
               </PieChart>
             </ResponsiveContainer>
           </div>
-
           <div className="flex-1 space-y-2 min-w-0">
             {data.slice(0, 5).map((d, i) => (
               <div key={i} className="flex items-center gap-2">
                 <div className="w-2 h-2 rounded-full shrink-0" style={{ background: d.color }} />
                 <span className="text-xs text-zinc-400 truncate flex-1">{d.name}</span>
-                <span className="text-xs font-semibold text-white shrink-0">
-                  {((d.value / total) * 100).toFixed(0)}%
-                </span>
+                <span className="text-xs font-semibold text-white shrink-0">{((d.value / total) * 100).toFixed(0)}%</span>
+              </div>
+            ))}
+          </div>
+        </div>
+
+        {/* Desktop: bigger donut + full legend */}
+        <div className="hidden lg:flex gap-6">
+          <div className="shrink-0">
+            <ResponsiveContainer width={180} height={180}>
+              <PieChart>
+                <Pie data={data} cx="50%" cy="50%" innerRadius={52} outerRadius={80} paddingAngle={3} dataKey="value" stroke="none">
+                  {data.map((entry, i) => <Cell key={i} fill={entry.color} />)}
+                </Pie>
+                <Tooltip content={<CustomTooltip />} />
+              </PieChart>
+            </ResponsiveContainer>
+          </div>
+          <div className="flex-1 grid grid-cols-2 gap-x-4 gap-y-3 content-center">
+            {data.map((d, i) => (
+              <div key={i} className="flex items-center gap-2 min-w-0">
+                <div className="w-2.5 h-2.5 rounded-full shrink-0" style={{ background: d.color }} />
+                <div className="flex-1 min-w-0">
+                  <p className="text-xs text-zinc-400 truncate">{d.name}</p>
+                  <p className="text-xs font-semibold text-white">{formatCurrency(d.value)}</p>
+                </div>
+                <span className="text-[11px] text-zinc-500 shrink-0">{((d.value / total) * 100).toFixed(0)}%</span>
               </div>
             ))}
           </div>
