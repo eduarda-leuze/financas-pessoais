@@ -319,7 +319,7 @@ export function SpreadsheetImport() {
 
   const buildAll = () => {
     const all = sheets.flatMap(s => {
-      if (s.format === 'empty') return []
+      if (s.format === 'empty' || s.format === 'income_pivot' || s.format === 'income_detail') return []
       const yr = yearOverrides[s.name] ?? s.year
       if (yr === s.year) return s.parsed
       return s.format === 'control'       ? parseControl(s.rows, yr, categories)
@@ -342,7 +342,7 @@ export function SpreadsheetImport() {
   const totalExpense = allRows.filter(r => r.type === 'expense').reduce((s, r) => s + r.amount, 0)
   const totalIncome  = allRows.filter(r => r.type === 'income').reduce((s, r) => s + r.amount, 0)
   const years        = [...new Set(allRows.map(r => r.year))].sort()
-  const nonEmpty     = sheets.filter(s => s.format !== 'empty')
+  const nonEmpty     = sheets.filter(s => s.format === 'control')
 
   // ── DONE ──────────────────────────────────────────────────────────────────
   if (step === 'done') return (
@@ -430,12 +430,12 @@ export function SpreadsheetImport() {
   // ── SHEETS OVERVIEW ───────────────────────────────────────────────────────
   if (step === 'sheets') {
     const fmtLabel: Record<SheetFormat, string> = {
-      control: 'controle mensal', income_pivot: 'receita mensal',
-      income_detail: 'receita detalhada', empty: 'vazia / planejamento',
+      control: 'controle mensal', income_pivot: 'receita (ignorada)',
+      income_detail: 'receita (ignorada)', empty: 'vazia / planejamento',
     }
     const fmtColor: Record<SheetFormat, string> = {
-      control: 'bg-blue-500/15 text-blue-400', income_pivot: 'bg-green-500/15 text-green-400',
-      income_detail: 'bg-purple-500/15 text-purple-400', empty: 'bg-zinc-500/10 text-zinc-600',
+      control: 'bg-blue-500/15 text-blue-400', income_pivot: 'bg-zinc-500/10 text-zinc-500',
+      income_detail: 'bg-zinc-500/10 text-zinc-500', empty: 'bg-zinc-500/10 text-zinc-600',
     }
     return (
       <div className="pb-32">
@@ -524,10 +524,8 @@ export function SpreadsheetImport() {
         <p className="text-xs text-zinc-500 font-semibold uppercase tracking-wide">O que é importado</p>
         <div className="space-y-1.5 text-xs text-zinc-400">
           <p>✓ Abas CONTROLE 2022 / 2024 / 2025 / 2026 — gastos mensais com status</p>
-          <p>✓ Aba RECEITA — receita por parcela/mês</p>
-          <p>✓ Aba RECEITA - MES — receitas detalhadas por serviço</p>
           <p>✓ Vencimentos e status pago/pendente preservados</p>
-          <p>✗ Abas de planejamento (Página8) são ignoradas</p>
+          <p>✗ Abas de receita e planejamento são ignoradas</p>
         </div>
       </div>
     </div>
