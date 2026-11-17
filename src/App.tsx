@@ -4,7 +4,7 @@ import { AppProvider } from './context/AppContext'
 import { AppLayout } from './components/layout/AppLayout'
 import { Dashboard } from './pages/Dashboard'
 import { Transactions } from './pages/Transactions'
-import { Import } from './pages/Import'
+import { Contas } from './pages/Contas'
 import { Analysis } from './pages/Analysis'
 import { Settings } from './pages/Settings'
 import { Auth } from './pages/Auth'
@@ -28,7 +28,7 @@ function ProtectedRoutes() {
         <Route element={<AppLayout />}>
           <Route index element={<Dashboard />} />
           <Route path="transacoes" element={<Transactions />} />
-          <Route path="importar" element={<Import />} />
+          <Route path="contas" element={<Contas />} />
           <Route path="analise" element={<Analysis />} />
           <Route path="configuracoes" element={<Settings />} />
         </Route>
