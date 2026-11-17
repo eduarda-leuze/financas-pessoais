@@ -1,5 +1,5 @@
-import { useState } from 'react'
-import { Check } from 'lucide-react'
+import { useState, useRef } from 'react'
+import { Check, MoreHorizontal, Receipt, Pencil } from 'lucide-react'
 import { useApp } from '../../context/AppContext'
 import { formatCurrency, formatDate, getDaysUntilDue } from '../../lib/utils'
 import { TransactionModal } from './TransactionModal'
@@ -8,12 +8,16 @@ import type { Transaction } from '../../types'
 interface Props { transaction: Transaction }
 
 export function TransactionItem({ transaction: t }: Props) {
-  const { markAsPaid } = useApp()
-  const [editing, setEditing] = useState(false)
+  const { markAsPaid, updateTransaction } = useApp()
+  const [editing, setEditing]         = useState(false)
+  const [showActions, setShowActions] = useState(false)
+  const [renaming, setRenaming]       = useState(false)
+  const [newTitle, setNewTitle]       = useState(t.description)
+  const inputRef = useRef<HTMLInputElement>(null)
 
-  const days = t.due_date ? getDaysUntilDue(t.due_date) : null
+  const days      = t.due_date ? getDaysUntilDue(t.due_date) : null
   const isExpense = t.type === 'expense'
-  const isPaid = t.status === 'paid'
+  const isPaid    = t.status === 'paid'
   const isOverdue = t.status === 'overdue'
 
   const handleStatusClick = (e: React.MouseEvent) => {
@@ -21,64 +25,152 @@ export function TransactionItem({ transaction: t }: Props) {
     if (!isPaid) markAsPaid(t.id)
   }
 
+  const handleMoreClick = (e: React.MouseEvent) => {
+    e.stopPropagation()
+    setShowActions(v => !v)
+  }
+
+  const handleConvertToBill = async (e: React.MouseEvent) => {
+    e.stopPropagation()
+    await updateTransaction(t.id, { is_bill: true, status: 'pending' })
+    setShowActions(false)
+  }
+
+  const handleStartRename = (e: React.MouseEvent) => {
+    e.stopPropagation()
+    setShowActions(false)
+    setNewTitle(t.description)
+    setRenaming(true)
+    setTimeout(() => inputRef.current?.focus(), 50)
+  }
+
+  const handleRenameSubmit = async (e: React.FormEvent) => {
+    e.preventDefault()
+    const trimmed = newTitle.trim()
+    if (trimmed && trimmed !== t.description) {
+      await updateTransaction(t.id, { description: trimmed })
+    }
+    setRenaming(false)
+  }
+
   return (
     <>
-      <button
-        className="w-full flex items-center gap-3 px-4 py-3 rounded-2xl border border-[#1f1f1f] bg-[#161616] text-left active:scale-[0.99] transition-all hover:border-[#2a2a2a]"
-        onClick={() => setEditing(true)}
-      >
-        {/* Category color bar */}
-        <div
-          className="w-1 h-8 rounded-full shrink-0"
-          style={{ background: t.category?.color || '#333' }}
-        />
+      <div className="rounded-2xl border border-[#1f1f1f] bg-[#161616] overflow-hidden">
+        <button
+          className="w-full flex items-center gap-3 px-4 py-3 text-left active:scale-[0.99] transition-all hover:border-[#2a2a2a]"
+          onClick={() => setEditing(true)}
+        >
+          {/* Category color bar */}
+          <div
+            className="w-1 h-8 rounded-full shrink-0"
+            style={{ background: t.category?.color || '#333' }}
+          />
 
-        {/* Info */}
-        <div className="flex-1 min-w-0">
-          <p className="text-sm font-medium text-white truncate">{t.description}</p>
-          <div className="flex items-center gap-2 mt-0.5">
-            <span className="text-[11px] text-zinc-600">
-              {t.category?.name || 'Sem categoria'}
-            </span>
-            {t.due_date && (
-              <>
-                <span className="text-zinc-800">·</span>
-                <span className="text-[11px] text-zinc-600">{formatDate(t.due_date)}</span>
-              </>
-            )}
-            {days !== null && !isPaid && days <= 3 && days >= 0 && (
-              <span className="text-[10px] font-semibold text-amber-400">
-                {days === 0 ? 'hoje' : `${days}d`}
+          {/* Info */}
+          <div className="flex-1 min-w-0">
+            <p className="text-sm font-medium text-white truncate">{t.description}</p>
+            <div className="flex items-center gap-2 mt-0.5">
+              <span className="text-[11px] text-zinc-600">
+                {t.category?.name || 'Sem categoria'}
               </span>
-            )}
-            {isOverdue && (
-              <span className="text-[10px] font-semibold text-red-400">vencida</span>
-            )}
+              {t.is_bill && (
+                <>
+                  <span className="text-zinc-800">·</span>
+                  <span className="text-[10px] font-medium text-blue-400/70">conta</span>
+                </>
+              )}
+              {t.due_date && (
+                <>
+                  <span className="text-zinc-800">·</span>
+                  <span className="text-[11px] text-zinc-600">{formatDate(t.due_date)}</span>
+                </>
+              )}
+              {days !== null && !isPaid && days <= 3 && days >= 0 && (
+                <span className="text-[10px] font-semibold text-amber-400">
+                  {days === 0 ? 'hoje' : `${days}d`}
+                </span>
+              )}
+              {isOverdue && (
+                <span className="text-[10px] font-semibold text-red-400">vencida</span>
+              )}
+            </div>
           </div>
-        </div>
 
-        {/* Amount */}
-        <div className="flex flex-col items-end gap-1.5 shrink-0">
-          <span className={`text-sm font-semibold ${isExpense ? 'text-white' : 'text-green-400'}`}>
-            {isExpense ? '-' : '+'}{formatCurrency(t.amount)}
-          </span>
+          {/* Amount */}
+          <div className="flex flex-col items-end gap-1.5 shrink-0">
+            <span className={`text-sm font-semibold ${isExpense ? 'text-white' : 'text-green-400'}`}>
+              {isExpense ? '-' : '+'}{formatCurrency(t.amount)}
+            </span>
 
-          {/* Status pill — tappable */}
+            <button
+              onClick={handleStatusClick}
+              className={`flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold transition-all ${
+                isPaid
+                  ? 'bg-green-500/10 text-green-500 cursor-default'
+                  : isOverdue
+                  ? 'bg-red-500/10 text-red-400 hover:bg-red-500/20'
+                  : 'bg-amber-500/10 text-amber-400 hover:bg-green-500/15 hover:text-green-400'
+              }`}
+            >
+              {isPaid && <Check size={9} strokeWidth={3} />}
+              {isPaid ? 'Pago' : isOverdue ? 'Vencido' : 'Pendente'}
+            </button>
+          </div>
+
+          {/* More button */}
           <button
-            onClick={handleStatusClick}
-            className={`flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold transition-all ${
-              isPaid
-                ? 'bg-green-500/10 text-green-500 cursor-default'
-                : isOverdue
-                ? 'bg-red-500/10 text-red-400 hover:bg-red-500/20'
-                : 'bg-amber-500/10 text-amber-400 hover:bg-green-500/15 hover:text-green-400'
+            onClick={handleMoreClick}
+            className={`ml-1 w-7 h-7 rounded-lg flex items-center justify-center transition-colors shrink-0 ${
+              showActions ? 'bg-[#2a2a2a] text-zinc-300' : 'text-zinc-700 hover:text-zinc-400'
             }`}
           >
-            {isPaid && <Check size={9} strokeWidth={3} />}
-            {isPaid ? 'Pago' : isOverdue ? 'Vencido' : 'Pendente'}
+            <MoreHorizontal size={14} />
           </button>
-        </div>
-      </button>
+        </button>
+
+        {/* Quick actions row */}
+        {showActions && (
+          <div className="border-t border-[#1f1f1f] px-4 py-2 flex gap-2">
+            {/* Rename */}
+            {renaming ? (
+              <form onSubmit={handleRenameSubmit} className="flex-1 flex gap-2" onClick={e => e.stopPropagation()}>
+                <input
+                  ref={inputRef}
+                  value={newTitle}
+                  onChange={e => setNewTitle(e.target.value)}
+                  className="flex-1 bg-[#1a1a1a] border border-[#333] rounded-lg px-3 py-1.5 text-xs text-white focus:outline-none focus:border-zinc-500"
+                  onBlur={() => setRenaming(false)}
+                />
+                <button
+                  type="submit"
+                  className="px-3 py-1.5 rounded-lg bg-green-500/15 text-green-400 text-xs font-medium border border-green-500/20"
+                >
+                  OK
+                </button>
+              </form>
+            ) : (
+              <>
+                <button
+                  onClick={handleStartRename}
+                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-[#1a1a1a] border border-[#252525] text-xs text-zinc-400 hover:text-white transition-colors"
+                >
+                  <Pencil size={11} />
+                  Renomear
+                </button>
+                {isExpense && !t.is_bill && (
+                  <button
+                    onClick={handleConvertToBill}
+                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-blue-500/10 border border-blue-500/20 text-xs text-blue-400 hover:bg-blue-500/15 transition-colors"
+                  >
+                    <Receipt size={11} />
+                    Virar conta
+                  </button>
+                )}
+              </>
+            )}
+          </div>
+        )}
+      </div>
 
       {editing && (
         <TransactionModal transaction={t} onClose={() => setEditing(false)} />

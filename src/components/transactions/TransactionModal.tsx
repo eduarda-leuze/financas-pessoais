@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react'
 import { X, ArrowDownCircle, ArrowUpCircle, Trash2, Receipt, ShoppingBag } from 'lucide-react'
 import { useApp } from '../../context/AppContext'
+import { supabase } from '../../lib/supabase'
 import { getCurrentMonthYear } from '../../lib/utils'
 import type { Transaction, TransactionType } from '../../types'
 
@@ -36,13 +37,26 @@ export function TransactionModal({ onClose, defaultType = 'expense', defaultIsBi
     if (!isEdit) setCategoryId('')
   }, [type, isEdit])
 
+  const saveKeywordRule = async (desc: string, catId: string) => {
+    if (!catId) return
+    const cat = categories.find(c => c.id === catId)
+    if (!cat) return
+    const normalized = desc.trim().toLowerCase()
+    if (!normalized || cat.keywords.map(k => k.toLowerCase()).includes(normalized)) return
+    const updated = [...cat.keywords, desc.trim()]
+    await supabase.from('categories').update({ keywords: updated }).eq('id', catId)
+  }
+
   const handleSave = async () => {
     if (!description.trim() || !amount) return
     setSaving(true)
     const effectiveStatus = (type === 'expense' && !isBill) ? 'paid' : status
+    const descTrimmed = description.trim()
+    // auto-save description as keyword for the chosen category
+    if (categoryId) await saveKeywordRule(descTrimmed, categoryId)
     if (isEdit) {
       await updateTransaction(transaction.id, {
-        description: description.trim(),
+        description: descTrimmed,
         amount: parseFloat(amount.replace(',', '.')),
         type,
         status: effectiveStatus,
@@ -52,7 +66,7 @@ export function TransactionModal({ onClose, defaultType = 'expense', defaultIsBi
       })
     } else {
       await addTransaction({
-        description: description.trim(),
+        description: descTrimmed,
         amount: parseFloat(amount.replace(',', '.')),
         type,
         status: effectiveStatus,
