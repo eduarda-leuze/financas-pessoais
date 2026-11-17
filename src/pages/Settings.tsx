@@ -1,16 +1,79 @@
 import { useState } from 'react'
-import { Plus, Trash2, LogOut } from 'lucide-react'
+import { Plus, Trash2, LogOut, ChevronDown, ChevronUp, X } from 'lucide-react'
 import { useApp } from '../context/AppContext'
 import { useAuth } from '../context/AuthContext'
 import { PageHeader } from '../components/layout/PageHeader'
 import { supabase } from '../lib/supabase'
+import type { Category } from '../types'
 
 const COLORS = ['#22c55e', '#3b82f6', '#8b5cf6', '#f59e0b', '#ec4899', '#ef4444', '#06b6d4', '#6b7280']
+
+function KeywordEditor({ cat, onDone }: { cat: Category; onDone: () => void }) {
+  const { loadCategories } = useApp()
+  const [kw, setKw] = useState('')
+  const [keywords, setKeywords] = useState<string[]>(cat.keywords ?? [])
+  const [saving, setSaving] = useState(false)
+
+  const add = () => {
+    const v = kw.trim().toLowerCase()
+    if (!v || keywords.includes(v)) return
+    setKeywords(prev => [...prev, v])
+    setKw('')
+  }
+
+  const remove = (k: string) => setKeywords(prev => prev.filter(x => x !== k))
+
+  const save = async () => {
+    setSaving(true)
+    await supabase.from('categories').update({ keywords }).eq('id', cat.id)
+    await loadCategories()
+    setSaving(false)
+    onDone()
+  }
+
+  return (
+    <div className="px-4 pb-4 space-y-3 bg-[#111] border-t border-[#1f1f1f]">
+      <p className="text-[11px] text-zinc-500 pt-3">
+        Palavras-chave que identificam esta categoria nas descrições do extrato
+      </p>
+      <div className="flex flex-wrap gap-1.5 min-h-[28px]">
+        {keywords.map(k => (
+          <span key={k} className="flex items-center gap-1 bg-[#1a1a1a] border border-[#2a2a2a] rounded-full px-2.5 py-1 text-xs text-zinc-300">
+            {k}
+            <button onClick={() => remove(k)} className="text-zinc-600 hover:text-red-400 ml-0.5">
+              <X size={10} />
+            </button>
+          </span>
+        ))}
+        {keywords.length === 0 && <p className="text-xs text-zinc-700">Nenhuma palavra-chave personalizada</p>}
+      </div>
+      <div className="flex gap-2">
+        <input
+          value={kw}
+          onChange={e => setKw(e.target.value)}
+          onKeyDown={e => e.key === 'Enter' && add()}
+          placeholder="ex: nubank, netflix, uber..."
+          className="flex-1 bg-[#1a1a1a] border border-[#2a2a2a] rounded-lg px-3 py-2 text-xs text-white focus:outline-none focus:border-zinc-500"
+        />
+        <button onClick={add} className="px-3 py-2 rounded-lg bg-[#1a1a1a] border border-[#2a2a2a] text-green-400 text-xs hover:border-green-500/40">
+          <Plus size={13} />
+        </button>
+      </div>
+      <div className="flex gap-2">
+        <button onClick={onDone} className="flex-1 py-2 rounded-lg border border-[#2a2a2a] text-xs text-zinc-500">Cancelar</button>
+        <button onClick={save} disabled={saving} className="flex-1 py-2 rounded-lg bg-green-500 text-black text-xs font-semibold disabled:opacity-50">
+          {saving ? 'Salvando...' : 'Salvar'}
+        </button>
+      </div>
+    </div>
+  )
+}
 
 export function Settings() {
   const { categories, loadCategories } = useApp()
   const { user, signOut } = useAuth()
   const [showAddCat, setShowAddCat] = useState(false)
+  const [expandedKw, setExpandedKw] = useState<string | null>(null)
   const [newCatName, setNewCatName] = useState('')
   const [newCatColor, setNewCatColor] = useState(COLORS[0])
   const [newCatIcon, setNewCatIcon] = useState('📦')
@@ -40,19 +103,27 @@ export function Settings() {
     await loadCategories()
   }
 
-  const expenseCategories  = categories.filter(c => c.type === 'expense')
-  const incomeCategories   = categories.filter(c => c.type === 'income')
-  const savingsCategories  = categories.filter(c => c.type === 'savings')
+  const typeLabel = (t: string) =>
+    t === 'expense' ? 'Gasto' : t === 'income' ? 'Receita' : 'Poupança'
+
+  const allCats = [
+    ...categories.filter(c => c.type === 'expense'),
+    ...categories.filter(c => c.type === 'income'),
+    ...categories.filter(c => c.type === 'savings'),
+  ]
 
   return (
     <div className="pb-4">
       <PageHeader title="Configurações" />
 
-      {/* Categories */}
       <div className="px-4 space-y-4">
+        {/* Categories */}
         <div className="bg-[#1a1a1a] rounded-xl border border-[#2a2a2a] overflow-hidden">
           <div className="flex items-center justify-between px-4 py-3 border-b border-[#2a2a2a]">
-            <h3 className="text-sm font-medium text-white">Categorias</h3>
+            <div>
+              <h3 className="text-sm font-medium text-white">Categorias</h3>
+              <p className="text-[11px] text-zinc-600 mt-0.5">Toque para editar palavras-chave de importação</p>
+            </div>
             <button
               onClick={() => setShowAddCat(!showAddCat)}
               className="text-green-400 hover:text-green-300 text-xs flex items-center gap-1"
@@ -83,13 +154,9 @@ export function Settings() {
                   { v: 'income',   label: 'Receita'  },
                   { v: 'savings',  label: 'Poupança' },
                 ] as const).map(({ v, label }) => (
-                  <button
-                    key={v}
-                    onClick={() => setNewCatType(v)}
+                  <button key={v} onClick={() => setNewCatType(v)}
                     className={`flex-1 py-2 rounded-lg text-xs font-medium border transition-colors ${
-                      newCatType === v
-                        ? 'bg-green-500/20 border-green-500/30 text-green-400'
-                        : 'border-[#2a2a2a] text-zinc-500'
+                      newCatType === v ? 'bg-green-500/20 border-green-500/30 text-green-400' : 'border-[#2a2a2a] text-zinc-500'
                     }`}
                   >
                     {label}
@@ -98,42 +165,51 @@ export function Settings() {
               </div>
               <div className="flex gap-2 flex-wrap">
                 {COLORS.map(c => (
-                  <button
-                    key={c}
-                    onClick={() => setNewCatColor(c)}
+                  <button key={c} onClick={() => setNewCatColor(c)}
                     className={`w-7 h-7 rounded-full border-2 transition-all ${newCatColor === c ? 'border-white scale-110' : 'border-transparent'}`}
                     style={{ backgroundColor: c }}
                   />
                 ))}
               </div>
-              <button
-                onClick={handleAddCategory}
-                disabled={saving || !newCatName.trim()}
-                className="w-full py-2.5 rounded-lg bg-green-500 text-black font-semibold text-sm disabled:opacity-50"
-              >
+              <button onClick={handleAddCategory} disabled={saving || !newCatName.trim()}
+                className="w-full py-2.5 rounded-lg bg-green-500 text-black font-semibold text-sm disabled:opacity-50">
                 {saving ? 'Salvando...' : 'Adicionar'}
               </button>
             </div>
           )}
 
           <div className="divide-y divide-[#1f1f1f]">
-            {[...expenseCategories, ...incomeCategories, ...savingsCategories].map(cat => (
-              <div key={cat.id} className="flex items-center gap-3 px-4 py-3">
-                <div className="w-2.5 h-2.5 rounded-full" style={{ backgroundColor: cat.color }} />
-                <span className="text-base">{cat.icon}</span>
-                <div className="flex-1">
-                  <p className="text-sm text-white">{cat.name}</p>
-                  <p className="text-[11px] text-zinc-600">
-                    {cat.type === 'expense' ? 'Gasto' : cat.type === 'income' ? 'Receita' : 'Poupança'}
-                  </p>
-                </div>
-                {cat.name !== 'Sem categoria' && (
-                  <button
-                    onClick={() => handleDeleteCategory(cat.id)}
-                    className="text-zinc-700 hover:text-red-400 transition-colors"
-                  >
-                    <Trash2 size={14} />
-                  </button>
+            {allCats.map(cat => (
+              <div key={cat.id}>
+                <button
+                  className="w-full flex items-center gap-3 px-4 py-3 text-left hover:bg-[#1f1f1f] transition-colors"
+                  onClick={() => setExpandedKw(expandedKw === cat.id ? null : cat.id)}
+                >
+                  <div className="w-2.5 h-2.5 rounded-full shrink-0" style={{ backgroundColor: cat.color }} />
+                  <span className="text-base">{cat.icon}</span>
+                  <div className="flex-1">
+                    <p className="text-sm text-white">{cat.name}</p>
+                    <p className="text-[11px] text-zinc-600">
+                      {typeLabel(cat.type)}
+                      {cat.keywords?.length > 0 && ` · ${cat.keywords.length} palavras-chave`}
+                    </p>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    {cat.name !== 'Sem categoria' && (
+                      <button
+                        onClick={e => { e.stopPropagation(); handleDeleteCategory(cat.id) }}
+                        className="text-zinc-700 hover:text-red-400 transition-colors p-1"
+                      >
+                        <Trash2 size={13} />
+                      </button>
+                    )}
+                    {expandedKw === cat.id
+                      ? <ChevronUp size={13} className="text-zinc-600" />
+                      : <ChevronDown size={13} className="text-zinc-600" />}
+                  </div>
+                </button>
+                {expandedKw === cat.id && (
+                  <KeywordEditor cat={cat} onDone={() => setExpandedKw(null)} />
                 )}
               </div>
             ))}
@@ -144,10 +220,7 @@ export function Settings() {
         <div className="bg-[#1a1a1a] rounded-xl border border-[#2a2a2a] p-4">
           <h3 className="text-sm font-medium text-white mb-3">Conta</h3>
           <p className="text-xs text-zinc-500 mb-4">{user?.email}</p>
-          <button
-            onClick={signOut}
-            className="flex items-center gap-2 text-sm text-red-400 hover:text-red-300"
-          >
+          <button onClick={signOut} className="flex items-center gap-2 text-sm text-red-400 hover:text-red-300">
             <LogOut size={14} />
             Sair
           </button>
