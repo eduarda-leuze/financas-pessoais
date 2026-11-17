@@ -1,110 +1,176 @@
 import { useState, useRef } from 'react'
 import * as XLSX from 'xlsx'
-import { Upload, CheckCircle, AlertCircle, ArrowRight, FileSpreadsheet, Eye } from 'lucide-react'
+import { Upload, CheckCircle, AlertCircle, ArrowRight, FileSpreadsheet, Eye, ChevronDown, ChevronUp } from 'lucide-react'
 import { useApp } from '../../context/AppContext'
 import { formatCurrency } from '../../lib/utils'
 import type { Transaction } from '../../types'
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 type Step = 'upload' | 'sheets' | 'preview' | 'done'
-interface RawRow { [key: string]: string | number | null }
+type RawCell = string | number | boolean | null
+type RawRow  = RawCell[]
+type SheetFormat = 'control' | 'income_pivot' | 'income_detail' | 'empty'
+type TxRow = Omit<Transaction, 'id' | 'user_id' | 'created_at'>
+
 interface SheetInfo {
   name: string
   rows: RawRow[]
-  headers: string[]
-  type: 'pivot' | 'flat' | 'empty'
+  format: SheetFormat
   year: number
-  preview: Omit<Transaction,'id'|'user_id'|'created_at'>[]
+  parsed: TxRow[]
+}
+
+// ─── Constants ───────────────────────────────────────────────────────────────
+const MONTH_ABBR: Record<string, number> = {
+  JAN: 1, FEV: 2, MAR: 3, ABR: 4, MAI: 5, JUN: 6,
+  JUL: 7, AGO: 8, SET: 9, OUT: 10, NOV: 11, DEZ: 12,
+}
+const MONTH_FULL: Record<string, number> = {
+  JANEIRO: 1, FEVEREIRO: 2, MARCO: 3, ABRIL: 4, MAIO: 5, JUNHO: 6,
+  JULHO: 7, AGOSTO: 8, SETEMBRO: 9, OUTUBRO: 10, NOVEMBRO: 11, DEZEMBRO: 12,
+}
+const SKIP_DESC_SET = new Set([
+  'total', 'receita', 'saida', 'saidas', 'diferenca', 'diferencas',
+  'subtotal', 'resultado', 'saldo',
+])
+function shouldSkipDesc(raw: string): boolean {
+  const n = norm(raw)
+  if (SKIP_DESC_SET.has(n)) return true
+  if (n.startsWith('dia ') || n.startsWith('saida') || n.startsWith('saidas') || n.startsWith('diferenca')) return true
+  return false
 }
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
-const MONTH_MAP: Record<string, number> = {
-  jan:1, fev:2, mar:3, abr:4, mai:5, jun:6,
-  jul:7, ago:8, set:9, out:10, nov:11, dez:12,
-  janeiro:1, fevereiro:2, março:3, marco:3, abril:4, maio:5, junho:6,
-  julho:7, agosto:8, setembro:9, outubro:10, novembro:11, dezembro:12,
+function norm(s: string): string {
+  return s.toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '').trim()
 }
 
-const SKIP_COLS = ['total','soma','saldo','acumulado','acumulados','subtotal','resultado','a pagar']
-const SKIP_ROWS = ['total','soma','subtotal','resultado']
-
-function normalize(s: string) {
-  return s.toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g,'').trim()
+function isPaid(v: RawCell): boolean {
+  if (typeof v !== 'string') return false
+  const n = norm(v).replace(/[^a-z]/g, '')
+  return n.startsWith('pg') || n === 'pago' || n === 'paga'
 }
 
-function parseAmount(raw: string | number | null): number {
-  if (raw === null || raw === '') return 0
-  if (typeof raw === 'number') return Math.abs(raw)
-  const s = String(raw).replace(/[R$\s]/g,'').replace(/\./g,'').replace(',','.')
-  return Math.abs(parseFloat(s) || 0)
+function toAmount(v: RawCell): number {
+  if (typeof v === 'number' && v > 0 && v < 40000) return v
+  if (typeof v === 'string') {
+    const cleaned = v.replace(/[R$\s]/g, '').replace(/\./g, '').replace(',', '.')
+    const n = parseFloat(cleaned)
+    if (!isNaN(n) && n > 0 && n < 40000) return n
+  }
+  return 0
+}
+
+function isDateSerial(v: RawCell): v is number {
+  return typeof v === 'number' && v > 40000 && v < 60000
+}
+
+function parseVenc(v: RawCell, year: number, _month: number): string | null {
+  if (v === null) return null
+  if (isDateSerial(v)) {
+    const d = XLSX.SSF.parse_date_code(v)
+    if (d) return `${d.y}-${String(d.m).padStart(2, '0')}-${String(d.d).padStart(2, '0')}`
+  }
+  if (typeof v === 'string') {
+    const m2 = v.match(/^(\d{1,2})\/(\d{1,2})\/(\d{2,4})$/)
+    if (m2) {
+      const y = m2[3].length === 2 ? '20' + m2[3] : m2[3]
+      return `${y}-${m2[2].padStart(2, '0')}-${m2[1].padStart(2, '0')}`
+    }
+    const m1 = v.match(/^(\d{1,2})\/(\d{1,2})$/)
+    if (m1) return `${year}-${m1[2].padStart(2, '0')}-${m1[1].padStart(2, '0')}`
+  }
+  return null
 }
 
 function detectYear(sheetName: string, rows: RawRow[]): number {
-  // Try sheet name first
   const m = sheetName.match(/\b(20\d{2})\b/)
   if (m) return parseInt(m[1])
-  // Try first few rows for a 4-digit year
-  for (const row of rows.slice(0, 5)) {
-    for (const val of Object.values(row)) {
-      if (typeof val === 'number' && val >= 2015 && val <= 2030) return val
-      if (typeof val === 'string') {
-        const ym = val.match(/\b(20\d{2})\b/)
-        if (ym) return parseInt(ym[1])
+  for (const row of rows.slice(0, 10)) {
+    for (const v of row) {
+      if (isDateSerial(v)) {
+        const d = XLSX.SSF.parse_date_code(v)
+        if (d?.y && d.y >= 2015 && d.y <= 2030) return d.y
       }
     }
   }
-  // Fallback: guess from sheet order (not ideal)
   return new Date().getFullYear()
 }
 
-function detectSheetType(rows: RawRow[]): 'pivot' | 'flat' | 'empty' {
+// ─── Format Detection ─────────────────────────────────────────────────────────
+function detectFormat(rows: RawRow[]): SheetFormat {
   if (!rows.length) return 'empty'
-  const firstKey = Object.keys(rows[0])[0]
-  const firstVal = normalize(String(rows[0][firstKey] ?? ''))
-  // If first column has month names → pivot
-  if (Object.keys(MONTH_MAP).some(m => firstVal.startsWith(m))) return 'pivot'
-  // Check a few more rows
-  let monthHits = 0
-  for (const row of rows.slice(0, 15)) {
-    const v = normalize(String(Object.values(row)[0] ?? ''))
-    if (Object.keys(MONTH_MAP).some(m => v.startsWith(m))) monthHits++
+  for (const row of rows.slice(0, 5)) {
+    const first = norm(String(row[0] ?? ''))
+    if (first === 'saida') {
+      const hasMonths = row.slice(1).some(v => typeof v === 'string' && MONTH_ABBR[v.trim().toUpperCase()])
+      if (hasMonths) return 'control'
+    }
   }
-  if (monthHits >= 3) return 'pivot'
-  return 'flat'
+  for (const row of rows.slice(0, 5)) {
+    const cnt = row.slice(1).filter(v => typeof v === 'string' && MONTH_ABBR[v.trim().toUpperCase()]).length
+    if (cnt >= 4) return 'income_pivot'
+  }
+  for (const row of rows.slice(0, 10)) {
+    const cnt = row.filter(v => typeof v === 'string' && MONTH_FULL[v.trim().toUpperCase()]).length
+    if (cnt >= 2) return 'income_detail'
+  }
+  return 'empty'
 }
 
-function parsePivot(
+// ─── CONTROLE Parser ─────────────────────────────────────────────────────────
+function parseControl(
   rows: RawRow[],
-  headers: string[],
   year: number,
-  categories: { id: string; name: string; type: string }[],
-): Omit<Transaction,'id'|'user_id'|'created_at'>[] {
-  const result: Omit<Transaction,'id'|'user_id'|'created_at'>[] = []
-  const catCols = headers.slice(1).filter(h => !SKIP_COLS.some(s => normalize(h).includes(s)))
+  cats: { id: string; name: string; type: string }[],
+): TxRow[] {
+  let headerRow: RawRow = []
+  let headerIdx = -1
+  for (let i = 0; i < Math.min(5, rows.length); i++) {
+    if (norm(String(rows[i][0] ?? '')) === 'saida') { headerRow = rows[i]; headerIdx = i; break }
+  }
+  if (headerIdx < 0) return []
 
-  for (const row of rows) {
-    const monthRaw = normalize(String(Object.values(row)[0] ?? ''))
-    // Skip total/sum rows
-    if (SKIP_ROWS.some(s => monthRaw.startsWith(s))) continue
-    const month = Object.entries(MONTH_MAP).find(([k]) => monthRaw.startsWith(k))?.[1]
-    if (!month) continue
+  const monthCols: { month: number; col: number }[] = []
+  headerRow.forEach((v, ci) => {
+    if (typeof v === 'string') {
+      const mn = MONTH_ABBR[v.trim().toUpperCase()]
+      if (mn) monthCols.push({ month: mn, col: ci })
+    }
+  })
+  if (!monthCols.length) return []
 
-    for (const col of catCols) {
-      const amount = parseAmount(row[col])
+  const expCat = cats.find(c => c.type === 'expense')
+  const result: TxRow[] = []
+
+  for (let r = headerIdx + 1; r < rows.length; r++) {
+    const row  = rows[r]
+    const desc = String(row[0] ?? '').trim()
+    if (!desc) continue
+    if (shouldSkipDesc(desc)) continue
+    const hasData = monthCols.some(({ col }) => toAmount(row[col]) > 0)
+    if (!hasData) continue
+
+    for (const { month, col } of monthCols) {
+      const amount = toAmount(row[col])
       if (!amount) continue
-      const colNorm = normalize(col)
-      // Try to match category by name
-      const matchCat = categories.find(c =>
-        normalize(c.name).includes(colNorm) || colNorm.includes(normalize(c.name))
-      )
+      const vencVal = row[col + 1] ?? null
+      const statVal = row[col + 2] ?? null
+      const paid    = isPaid(statVal) || isPaid(vencVal)
+      const dueDate = parseVenc(vencVal, year, month) ?? `${year}-${String(month).padStart(2, '0')}-01`
+      const descN   = norm(desc)
+      const matchCat = cats.find(c => {
+        const cn = norm(c.name)
+        return cn.includes(descN.slice(0, 4)) || descN.includes(cn.slice(0, 4))
+      })
       result.push({
-        description: col.trim(),
+        description: desc,
         amount,
-        type: (matchCat?.type as 'expense'|'income') || 'expense',
-        status: 'paid',
-        category_id: matchCat?.id || categories.find(c => c.type === 'expense')?.id || '',
-        due_date: `${year}-${String(month).padStart(2,'0')}-01`,
-        source: 'import',
+        type:        'expense',
+        status:      paid ? 'paid' : 'pending',
+        category_id: matchCat?.id ?? expCat?.id ?? cats[0]?.id ?? '',
+        due_date:    dueDate,
+        source:      'import',
         month,
         year,
       })
@@ -113,126 +179,153 @@ function parsePivot(
   return result
 }
 
-function parseFlat(
+// ─── RECEITA pivot parser ─────────────────────────────────────────────────────
+function parseIncomePivot(
   rows: RawRow[],
-  headers: string[],
-  categories: { id: string; name: string; type: string }[],
-): Omit<Transaction,'id'|'user_id'|'created_at'>[] {
-  const norm = (h: string) => normalize(h)
-  const dateCols  = ['data','date','dt','dia','vencimento']
-  const descCols  = ['descri','historico','memo','detalhe','lancamento']
-  const amtCols   = ['valor','amount','value','debito','saida','gasto']
-  const credCols  = ['credito','credit','entrada','receita']
-
-  const findCol = (hints: string[]) => headers.find(h => hints.some(hint => norm(h).includes(hint)))
-  const dateCol = findCol(dateCols)
-  const descCol = findCol(descCols)
-  const amtCol  = findCol(amtCols)
-  const credCol = findCol(credCols)
-  if (!dateCol || !descCol || !amtCol) return []
-
-  return rows.flatMap(row => {
-    const rawDate = row[dateCol]
-    const rawDesc = row[descCol]
-    const rawAmt  = row[amtCol]
-    const rawCred = credCol ? row[credCol] : null
-
-    // Date parsing
-    let dateStr: string | null = null
-    if (typeof rawDate === 'number') {
-      const d = XLSX.SSF.parse_date_code(rawDate)
-      if (d) dateStr = `${d.y}-${String(d.m).padStart(2,'0')}-${String(d.d).padStart(2,'0')}`
-    } else if (rawDate) {
-      const s = String(rawDate).trim()
-      const br = s.match(/^(\d{1,2})\/(\d{1,2})\/(\d{2,4})$/)
-      if (br) dateStr = `${br[3].length===2?'20'+br[3]:br[3]}-${br[2].padStart(2,'0')}-${br[1].padStart(2,'0')}`
-      else {
-        const iso = s.match(/^(\d{4})-(\d{2})-(\d{2})/)
-        if (iso) dateStr = `${iso[1]}-${iso[2]}-${iso[3]}`
+  year: number,
+  cats: { id: string; name: string; type: string }[],
+): TxRow[] {
+  const incCat = cats.find(c => c.type === 'income') ?? cats[0]
+  if (!incCat) return []
+  let headerIdx = -1
+  let monthCols: { month: number; col: number }[] = []
+  for (let i = 0; i < Math.min(5, rows.length); i++) {
+    const cols: { month: number; col: number }[] = []
+    rows[i].forEach((v, ci) => {
+      if (typeof v === 'string') {
+        const mn = MONTH_ABBR[v.trim().toUpperCase()]
+        if (mn) cols.push({ month: mn, col: ci })
       }
+    })
+    if (cols.length >= 4) { headerIdx = i; monthCols = cols; break }
+  }
+  if (headerIdx < 0) return []
+  const result: TxRow[] = []
+  for (let r = headerIdx + 1; r < rows.length; r++) {
+    const row  = rows[r]
+    const desc = String(row[0] ?? '').trim()
+    if (!desc || shouldSkipDesc(desc)) continue
+    for (const { month, col } of monthCols) {
+      const amount = toAmount(row[col])
+      if (!amount) continue
+      result.push({
+        description: `Receita - ${desc}`,
+        amount,
+        type:        'income',
+        status:      'paid',
+        category_id: incCat.id,
+        due_date:    `${year}-${String(month).padStart(2, '0')}-01`,
+        source:      'import',
+        month,
+        year,
+      })
     }
-    if (!dateStr) return []
-    const [yr, mo] = dateStr.split('-').map(Number)
-    const desc = String(rawDesc || '').trim()
-    if (!desc) return []
+  }
+  return result
+}
 
-    const makeRow = (amount: number, type: 'expense'|'income') => {
-      const matchCat = categories.find(c => normalize(c.name).includes(normalize(desc)) || normalize(desc).includes(normalize(c.name)))
-      const finalCat = matchCat || categories.find(c => c.type === type) || categories[0]
-      return {
+// ─── RECEITA - MES detail parser ──────────────────────────────────────────────
+function parseIncomeDetail(
+  rows: RawRow[],
+  defaultYear: number,
+  cats: { id: string; name: string; type: string }[],
+): TxRow[] {
+  const incCat = cats.find(c => c.type === 'income') ?? cats[0]
+  if (!incCat) return []
+  let headerIdx = -1
+  const groups: { month: number; col: number }[] = []
+  for (let i = 0; i < rows.length; i++) {
+    rows[i].forEach((v, ci) => {
+      if (typeof v === 'string') {
+        const mn = MONTH_FULL[v.trim().toUpperCase()]
+        if (mn) groups.push({ month: mn, col: ci })
+      }
+    })
+    if (groups.length >= 1) { headerIdx = i; break }
+  }
+  if (headerIdx < 0) return []
+  const result: TxRow[] = []
+  for (let r = headerIdx + 2; r < rows.length; r++) {
+    const row = rows[r]
+    if (!row.some(v => v !== null)) continue
+    for (const { month, col } of groups) {
+      const desc   = String(row[col] ?? '').trim()
+      const amount = toAmount(row[col + 2])
+      if (!desc || !amount) continue
+      let rowYear = defaultYear
+      let dueDate = `${defaultYear}-${String(month).padStart(2, '0')}-01`
+      const dateCell = row[col + 3]
+      if (isDateSerial(dateCell)) {
+        const d = XLSX.SSF.parse_date_code(dateCell)
+        if (d) { rowYear = d.y; dueDate = `${d.y}-${String(d.m).padStart(2,'0')}-${String(d.d).padStart(2,'0')}` }
+      }
+      const isAReceber = typeof dateCell === 'string' && dateCell.toUpperCase().includes('RECEBER')
+      result.push({
         description: desc,
         amount,
-        type,
-        status: 'paid' as const,
-        category_id: finalCat?.id || '',
-        due_date: dateStr!,
-        source: 'import' as const,
-        month: mo,
-        year: yr,
-      }
+        type:        'income',
+        status:      isAReceber ? 'pending' : 'paid',
+        category_id: incCat.id,
+        due_date:    dueDate,
+        source:      'import',
+        month,
+        year:        rowYear,
+      })
     }
-
-    const expAmt  = parseAmount(rawAmt)
-    const credAmt = rawCred !== null ? parseAmount(rawCred) : 0
-    if (credAmt > 0 && expAmt > 0) return [makeRow(expAmt,'expense'), makeRow(credAmt,'income')]
-    if (credAmt > 0) return [makeRow(credAmt,'income')]
-    if (expAmt  > 0) return [makeRow(expAmt,'expense')]
-    return []
-  })
+  }
+  return result
 }
 
 // ─── Component ───────────────────────────────────────────────────────────────
 export function SpreadsheetImport() {
   const { categories, bulkImport } = useApp()
   const fileRef = useRef<HTMLInputElement>(null)
-  const [step,       setStep]       = useState<Step>('upload')
-  const [sheets,     setSheets]     = useState<SheetInfo[]>([])
-  const [allRows,    setAllRows]    = useState<Omit<Transaction,'id'|'user_id'|'created_at'>[]>([])
-  const [importing,  setImporting]  = useState(false)
-  const [result,     setResult]     = useState<{ count: number; error?: string } | null>(null)
-  const [fileName,   setFileName]   = useState('')
-  const [processing, setProcessing] = useState(false)
-  const [error,      setError]      = useState('')
-  const [openSheet,  setOpenSheet]  = useState<string | null>(null)
+  const [step,          setStep]          = useState<Step>('upload')
+  const [sheets,        setSheets]        = useState<SheetInfo[]>([])
+  const [allRows,       setAllRows]       = useState<TxRow[]>([])
+  const [importing,     setImporting]     = useState(false)
+  const [result,        setResult]        = useState<{ count: number; error?: string } | null>(null)
+  const [fileName,      setFileName]      = useState('')
+  const [processing,    setProcessing]    = useState(false)
+  const [error,         setError]         = useState('')
+  const [openSheet,     setOpenSheet]     = useState<string | null>(null)
   const [yearOverrides, setYearOverrides] = useState<Record<string, number>>({})
 
   const handleFile = async (file: File) => {
     setError(''); setProcessing(true); setFileName(file.name)
     try {
       const buf = await file.arrayBuffer()
-      const wb  = XLSX.read(buf, { type:'array', cellDates:false })
-
+      const wb  = XLSX.read(buf, { type: 'array', cellDates: false, raw: true })
       const parsed: SheetInfo[] = wb.SheetNames.map(name => {
         const ws   = wb.Sheets[name]
-        const rows: RawRow[] = XLSX.utils.sheet_to_json(ws, { defval: null, raw: true })
-        if (!rows.length) return { name, rows:[], headers:[], type:'empty', year:0, preview:[] }
-
-        const headers = Object.keys(rows[0])
-        const type    = detectSheetType(rows)
-        const year    = detectYear(name, rows)
-        const preview = type === 'pivot'
-          ? parsePivot(rows, headers, year, categories)
-          : parseFlat(rows, headers, categories)
-
-        return { name, rows, headers, type, year, preview }
+        const rows: RawRow[] = (XLSX.utils.sheet_to_json(ws, { header: 1, defval: null, raw: true }) as RawRow[])
+          .filter(r => r.some(v => v !== null))
+        const format = detectFormat(rows)
+        const year   = detectYear(name, rows)
+        const p = format === 'control'       ? parseControl(rows, year, categories)
+                : format === 'income_pivot'  ? parseIncomePivot(rows, year, categories)
+                : format === 'income_detail' ? parseIncomeDetail(rows, year, categories)
+                : []
+        return { name, rows, format, year, parsed: p }
       })
-
       setSheets(parsed)
       setStep('sheets')
-    } catch {
-      setError('Não foi possível ler o arquivo. Certifique-se que é .xlsx, .xls ou .csv.')
+    } catch (e) {
+      setError('Não foi possível ler o arquivo. Certifique-se de usar .xlsx ou .xls.')
+      console.error(e)
     }
     setProcessing(false)
   }
 
   const buildAll = () => {
     const all = sheets.flatMap(s => {
-      if (s.type === 'empty') return []
+      if (s.format === 'empty') return []
       const yr = yearOverrides[s.name] ?? s.year
-      const preview = s.type === 'pivot'
-        ? parsePivot(s.rows, s.headers, yr, categories)
-        : parseFlat(s.rows, s.headers, categories)
-      return preview
+      if (yr === s.year) return s.parsed
+      return s.format === 'control'       ? parseControl(s.rows, yr, categories)
+           : s.format === 'income_pivot'  ? parseIncomePivot(s.rows, yr, categories)
+           : s.format === 'income_detail' ? parseIncomeDetail(s.rows, yr, categories)
+           : []
     })
     setAllRows(all)
     setStep('preview')
@@ -246,54 +339,38 @@ export function SpreadsheetImport() {
     setStep('done')
   }
 
-  const totalExpense = allRows.filter(r => r.type==='expense').reduce((s,r)=>s+r.amount, 0)
-  const totalIncome  = allRows.filter(r => r.type==='income').reduce((s,r)=>s+r.amount, 0)
+  const totalExpense = allRows.filter(r => r.type === 'expense').reduce((s, r) => s + r.amount, 0)
+  const totalIncome  = allRows.filter(r => r.type === 'income').reduce((s, r) => s + r.amount, 0)
   const years        = [...new Set(allRows.map(r => r.year))].sort()
+  const nonEmpty     = sheets.filter(s => s.format !== 'empty')
 
-  // ── DONE ──
-  if (step === 'done') {
-    return (
-      <div className="flex flex-col items-center justify-center py-16 px-4 text-center">
-        {result?.error ? (
-          <>
-            <AlertCircle size={48} className="text-red-400 mb-4" />
-            <h2 className="text-lg font-semibold text-white mb-2">Erro na importação</h2>
-            <p className="text-zinc-400 text-sm mb-6">{result.error}</p>
-          </>
-        ) : (
-          <>
-            <CheckCircle size={48} className="text-green-400 mb-4" />
-            <h2 className="text-lg font-semibold text-white mb-2">Importação concluída!</h2>
-            <p className="text-zinc-400 text-sm">{result?.count} transações importadas.</p>
-            <p className="text-zinc-600 text-xs mt-1 mb-6">Histórico de {years[0]} a {years[years.length-1]} disponível nos meses.</p>
-          </>
-        )}
-        <button
-          onClick={() => { setStep('upload'); setSheets([]); setAllRows([]); setResult(null) }}
-          className="py-3 px-6 rounded-xl bg-green-500 text-black font-semibold text-sm"
-        >
-          Nova importação
-        </button>
-      </div>
-    )
-  }
+  // ── DONE ──────────────────────────────────────────────────────────────────
+  if (step === 'done') return (
+    <div className="flex flex-col items-center justify-center py-16 px-4 text-center">
+      {result?.error
+        ? <><AlertCircle size={48} className="text-red-400 mb-4" /><h2 className="text-lg font-semibold text-white mb-2">Erro</h2><p className="text-zinc-400 text-sm mb-6">{result.error}</p></>
+        : <><CheckCircle size={48} className="text-green-400 mb-4" /><h2 className="text-lg font-semibold text-white mb-2">Importação concluída!</h2><p className="text-zinc-400 text-sm">{result?.count} lançamentos importados.</p>{years.length > 0 && <p className="text-zinc-600 text-xs mt-1">Histórico {years[0]}–{years[years.length - 1]}</p>}</>}
+      <button onClick={() => { setStep('upload'); setSheets([]); setAllRows([]); setResult(null) }}
+        className="mt-6 py-3 px-6 rounded-xl bg-green-500 text-black font-semibold text-sm">
+        Nova importação
+      </button>
+    </div>
+  )
 
-  // ── PREVIEW ──
+  // ── PREVIEW ───────────────────────────────────────────────────────────────
   if (step === 'preview') {
     const byYear = years.map(y => ({
-      year: y,
-      rows: allRows.filter(r => r.year === y),
-      expense: allRows.filter(r => r.year===y && r.type==='expense').reduce((s,r)=>s+r.amount,0),
-      income:  allRows.filter(r => r.year===y && r.type==='income').reduce((s,r)=>s+r.amount,0),
+      year:    y,
+      rows:    allRows.filter(r => r.year === y),
+      expense: allRows.filter(r => r.year === y && r.type === 'expense').reduce((s, r) => s + r.amount, 0),
+      income:  allRows.filter(r => r.year === y && r.type === 'income').reduce((s, r) => s + r.amount, 0),
     }))
-
     return (
       <div className="pb-32">
         <div className="sticky top-0 z-10 bg-[#0d0d0d] px-5 py-3 border-b border-[#1f1f1f]">
           <h2 className="text-base font-semibold text-white">Pré-visualização</h2>
           <p className="text-xs text-zinc-500">{allRows.length} lançamentos · {years.join(', ')}</p>
         </div>
-
         <div className="px-5 py-4 grid grid-cols-2 gap-3">
           <div className="bg-[#161616] border border-[#252525] rounded-2xl p-3">
             <p className="text-[10px] text-zinc-500 mb-1">Total gastos</p>
@@ -304,59 +381,45 @@ export function SpreadsheetImport() {
             <p className="text-sm font-bold text-green-400">{formatCurrency(totalIncome)}</p>
           </div>
         </div>
-
-        {/* Per-year breakdown */}
         <div className="px-5 space-y-3 pb-4">
           {byYear.map(({ year, rows, expense, income }) => (
             <div key={year} className="bg-[#161616] border border-[#252525] rounded-2xl overflow-hidden">
-              <div
-                className="flex items-center justify-between px-4 py-3 cursor-pointer"
-                onClick={() => setOpenSheet(openSheet === String(year) ? null : String(year))}
-              >
-                <div>
+              <button className="w-full flex items-center justify-between px-4 py-3"
+                onClick={() => setOpenSheet(openSheet === String(year) ? null : String(year))}>
+                <div className="text-left">
                   <p className="text-sm font-semibold text-white">{year}</p>
                   <p className="text-[11px] text-zinc-500">{rows.length} lançamentos</p>
                 </div>
-                <div className="text-right">
-                  <p className="text-xs font-semibold text-red-400">{formatCurrency(expense)}</p>
-                  {income > 0 && <p className="text-xs text-green-400">{formatCurrency(income)}</p>}
+                <div className="flex items-center gap-3">
+                  <div className="text-right">
+                    <p className="text-xs font-semibold text-red-400">{formatCurrency(expense)}</p>
+                    {income > 0 && <p className="text-xs text-green-400">{formatCurrency(income)}</p>}
+                  </div>
+                  {openSheet === String(year) ? <ChevronUp size={14} className="text-zinc-500" /> : <ChevronDown size={14} className="text-zinc-500" />}
                 </div>
-              </div>
+              </button>
               {openSheet === String(year) && (
                 <div className="border-t border-[#252525] divide-y divide-[#1f1f1f]">
                   {rows.slice(0, 10).map((r, i) => (
                     <div key={i} className="flex items-center gap-3 px-4 py-2">
-                      <div className="w-1.5 h-1.5 rounded-full shrink-0" style={{ background: r.type==='income'?'#22c55e':'#f87171' }} />
+                      <div className="w-1.5 h-1.5 rounded-full shrink-0" style={{ background: r.type === 'income' ? '#22c55e' : '#f87171' }} />
                       <span className="text-xs text-zinc-300 flex-1 truncate">{r.description}</span>
-                      <span className="text-[10px] text-zinc-600">{r.month}/{r.year}</span>
-                      <span className={`text-xs font-semibold shrink-0 ${r.type==='income'?'text-green-400':'text-white'}`}>
-                        {formatCurrency(r.amount)}
-                      </span>
+                      <span className="text-[10px] text-zinc-600 shrink-0">{r.month}/{r.year}</span>
+                      <span className={`text-xs font-semibold shrink-0 ${r.type === 'income' ? 'text-green-400' : 'text-white'}`}>{formatCurrency(r.amount)}</span>
                     </div>
                   ))}
-                  {rows.length > 10 && (
-                    <p className="text-[11px] text-zinc-600 text-center py-2">+ {rows.length-10} mais</p>
-                  )}
+                  {rows.length > 10 && <p className="text-[11px] text-zinc-600 text-center py-2">+ {rows.length - 10} mais</p>}
                 </div>
               )}
             </div>
           ))}
         </div>
-
         <div className="fixed bottom-[72px] left-0 right-0 max-w-lg mx-auto px-5 pb-4 pt-3 bg-[#0d0d0d] border-t border-[#1f1f1f] z-10 lg:bottom-0">
           <div className="flex gap-3">
-            <button onClick={() => setStep('sheets')} className="px-5 py-3 rounded-xl bg-[#1a1a1a] border border-[#252525] text-sm text-zinc-400">
-              Voltar
-            </button>
-            <button
-              onClick={handleImport}
-              disabled={importing}
-              className="flex-1 py-3 rounded-xl bg-green-500 text-black font-semibold text-sm disabled:opacity-50 flex items-center justify-center gap-2"
-            >
-              {importing
-                ? <><div className="w-4 h-4 border-2 border-black border-t-transparent rounded-full animate-spin" /> Importando...</>
-                : <>Importar {allRows.length} lançamentos <ArrowRight size={14} /></>
-              }
+            <button onClick={() => setStep('sheets')} className="px-5 py-3 rounded-xl bg-[#1a1a1a] border border-[#252525] text-sm text-zinc-400">Voltar</button>
+            <button onClick={handleImport} disabled={importing}
+              className="flex-1 py-3 rounded-xl bg-green-500 text-black font-semibold text-sm disabled:opacity-50 flex items-center justify-center gap-2">
+              {importing ? <><div className="w-4 h-4 border-2 border-black border-t-transparent rounded-full animate-spin" />Importando...</> : <>Importar {allRows.length} lançamentos <ArrowRight size={14} /></>}
             </button>
           </div>
         </div>
@@ -364,156 +427,107 @@ export function SpreadsheetImport() {
     )
   }
 
-  // ── SHEETS OVERVIEW ──
+  // ── SHEETS OVERVIEW ───────────────────────────────────────────────────────
   if (step === 'sheets') {
-    const nonEmpty = sheets.filter(s => s.type !== 'empty')
+    const fmtLabel: Record<SheetFormat, string> = {
+      control: 'controle mensal', income_pivot: 'receita mensal',
+      income_detail: 'receita detalhada', empty: 'vazia / planejamento',
+    }
+    const fmtColor: Record<SheetFormat, string> = {
+      control: 'bg-blue-500/15 text-blue-400', income_pivot: 'bg-green-500/15 text-green-400',
+      income_detail: 'bg-purple-500/15 text-purple-400', empty: 'bg-zinc-500/10 text-zinc-600',
+    }
     return (
       <div className="pb-32">
         <div className="px-5 pt-4 pb-3 border-b border-[#1f1f1f]">
           <h2 className="text-base font-semibold text-white">Abas encontradas</h2>
           <p className="text-xs text-zinc-500">{fileName} · {nonEmpty.length} abas com dados</p>
         </div>
-
         <div className="px-5 py-4 space-y-3">
           {sheets.map(s => {
             const yr = yearOverrides[s.name] ?? s.year
             return (
               <div key={s.name} className="bg-[#161616] border border-[#252525] rounded-2xl overflow-hidden">
-                <div
-                  className="flex items-center gap-3 px-4 py-3 cursor-pointer hover:bg-[#1a1a1a] transition-colors"
-                  onClick={() => setOpenSheet(openSheet===s.name?null:s.name)}
-                >
-                  <FileSpreadsheet size={16} className={s.type==='empty'?'text-zinc-700':'text-green-400'} />
+                <div className="flex items-center gap-3 px-4 py-3 cursor-pointer hover:bg-[#1a1a1a] transition-colors"
+                  onClick={() => s.format !== 'empty' && setOpenSheet(openSheet === s.name ? null : s.name)}>
+                  <FileSpreadsheet size={16} className={s.format === 'empty' ? 'text-zinc-700' : 'text-green-400'} />
                   <div className="flex-1 min-w-0">
                     <p className="text-sm font-medium text-white">{s.name}</p>
                     <div className="flex items-center gap-2 mt-0.5">
-                      {s.type === 'empty' ? (
-                        <span className="text-[10px] text-zinc-600">vazia</span>
-                      ) : (
-                        <>
-                          <span className={`text-[10px] font-medium px-1.5 py-0.5 rounded-full ${
-                            s.type==='pivot' ? 'bg-amber-500/15 text-amber-400' : 'bg-blue-500/15 text-blue-400'
-                          }`}>
-                            {s.type==='pivot' ? 'tabela mensal' : 'lista'}
-                          </span>
-                          <span className="text-[10px] text-zinc-500">{s.preview.length} lançamentos detectados</span>
-                        </>
-                      )}
+                      <span className={`text-[10px] font-medium px-1.5 py-0.5 rounded-full ${fmtColor[s.format]}`}>{fmtLabel[s.format]}</span>
+                      {s.format !== 'empty' && <span className="text-[10px] text-zinc-500">{s.parsed.length} lançamentos</span>}
                     </div>
                   </div>
-                  {s.type !== 'empty' && (
-                    <div className="text-right shrink-0">
-                      <p className="text-xs text-zinc-400">Ano:</p>
-                      <input
-                        type="number"
-                        value={yr}
-                        onClick={e => e.stopPropagation()}
-                        onChange={e => setYearOverrides(o => ({ ...o, [s.name]: parseInt(e.target.value)||yr }))}
-                        className="w-16 bg-[#1a1a1a] border border-[#252525] rounded-lg px-2 py-1 text-xs text-white text-center focus:outline-none focus:border-zinc-500 mt-0.5"
-                      />
+                  {s.format !== 'empty' && (
+                    <div className="shrink-0 text-right" onClick={e => e.stopPropagation()}>
+                      <p className="text-[10px] text-zinc-600 mb-0.5">Ano</p>
+                      <input type="number" value={yr}
+                        onChange={e => setYearOverrides(o => ({ ...o, [s.name]: parseInt(e.target.value) || yr }))}
+                        className="w-16 bg-[#1a1a1a] border border-[#252525] rounded-lg px-2 py-1 text-xs text-white text-center focus:outline-none focus:border-zinc-500" />
                     </div>
                   )}
-                  {s.type !== 'empty' && (
-                    <Eye size={14} className="text-zinc-600 shrink-0" />
-                  )}
+                  {s.format !== 'empty' && (openSheet === s.name ? <ChevronUp size={14} className="text-zinc-600 shrink-0" /> : <Eye size={14} className="text-zinc-600 shrink-0" />)}
                 </div>
-
-                {/* Preview of sheet */}
-                {openSheet === s.name && s.type !== 'empty' && (
-                  <div className="border-t border-[#252525]">
-                    {/* Raw headers */}
-                    <div className="px-4 py-2 bg-[#131313]">
-                      <p className="text-[10px] text-zinc-600 mb-1.5">Colunas: {s.headers.slice(0,8).join(' · ')}{s.headers.length>8?' …':''}</p>
-                      <div className="overflow-x-auto">
-                        <table className="text-[10px] text-zinc-400 min-w-full">
-                          <thead>
-                            <tr>{s.headers.slice(0,6).map(h=><th key={h} className="px-2 py-1 text-left text-zinc-600 border-b border-[#1f1f1f] whitespace-nowrap">{h}</th>)}</tr>
-                          </thead>
-                          <tbody>
-                            {s.rows.slice(0,3).map((row,i)=>(
-                              <tr key={i}>{s.headers.slice(0,6).map(h=><td key={h} className="px-2 py-1 truncate max-w-[80px] border-b border-[#1a1a1a]">{String(row[h]??'')}</td>)}</tr>
-                            ))}
-                          </tbody>
-                        </table>
-                      </div>
-                    </div>
-                    {/* Parsed sample */}
-                    {s.preview.slice(0,4).map((r,i)=>(
-                      <div key={i} className="flex items-center gap-3 px-4 py-2 border-b border-[#1a1a1a]">
-                        <div className="w-1.5 h-1.5 rounded-full" style={{background:r.type==='income'?'#22c55e':'#f87171'}} />
+                {openSheet === s.name && s.format !== 'empty' && (
+                  <div className="border-t border-[#252525] divide-y divide-[#1f1f1f]">
+                    {s.parsed.slice(0, 6).map((r, i) => (
+                      <div key={i} className="flex items-center gap-3 px-4 py-2">
+                        <div className="w-1.5 h-1.5 rounded-full shrink-0" style={{ background: r.type === 'income' ? '#22c55e' : '#f87171' }} />
                         <span className="text-xs text-zinc-300 flex-1 truncate">{r.description}</span>
-                        <span className="text-[10px] text-zinc-600">{r.month}/{r.year}</span>
-                        <span className="text-xs font-semibold text-white">{formatCurrency(r.amount)}</span>
+                        <span className="text-[10px] text-zinc-600 shrink-0">{r.month}/{r.year}</span>
+                        <span className={`text-xs font-semibold shrink-0 ${r.type === 'income' ? 'text-green-400' : 'text-white'}`}>{formatCurrency(r.amount)}</span>
                       </div>
                     ))}
+                    {s.parsed.length > 6 && <p className="text-[11px] text-zinc-600 text-center py-2">+ {s.parsed.length - 6} mais</p>}
                   </div>
                 )}
               </div>
             )
           })}
         </div>
-
-        {nonEmpty.length === 0 ? (
-          <p className="text-center text-sm text-zinc-600 py-8">Nenhuma aba com dados encontrada.</p>
-        ) : (
-          <div className="fixed bottom-[72px] left-0 right-0 max-w-lg mx-auto px-5 pb-4 pt-3 bg-[#0d0d0d] border-t border-[#1f1f1f] z-10 lg:bottom-0">
-            <p className="text-xs text-zinc-600 text-center mb-3">
-              {nonEmpty.reduce((s,sh)=>s+sh.preview.length,0)} lançamentos detectados em {nonEmpty.length} abas
-            </p>
-            <button
-              onClick={buildAll}
-              className="w-full py-3.5 rounded-xl bg-green-500 text-black font-semibold text-sm flex items-center justify-center gap-2"
-            >
-              Ver pré-visualização <ArrowRight size={14} />
-            </button>
-          </div>
-        )}
+        {nonEmpty.length === 0
+          ? <p className="text-center text-sm text-zinc-600 py-8">Nenhuma aba reconhecida.</p>
+          : (
+            <div className="fixed bottom-[72px] left-0 right-0 max-w-lg mx-auto px-5 pb-4 pt-3 bg-[#0d0d0d] border-t border-[#1f1f1f] z-10 lg:bottom-0">
+              <p className="text-xs text-zinc-600 text-center mb-3">{nonEmpty.reduce((s, sh) => s + sh.parsed.length, 0)} lançamentos em {nonEmpty.length} abas</p>
+              <button onClick={buildAll} className="w-full py-3.5 rounded-xl bg-green-500 text-black font-semibold text-sm flex items-center justify-center gap-2">
+                Ver pré-visualização <ArrowRight size={14} />
+              </button>
+            </div>
+          )}
       </div>
     )
   }
 
-  // ── UPLOAD ──
+  // ── UPLOAD ────────────────────────────────────────────────────────────────
   return (
     <div className="px-5 py-4 space-y-4">
       <div>
         <h2 className="text-base font-semibold text-white">Importar planilha</h2>
-        <p className="text-sm text-zinc-500 mt-0.5">Envia a planilha com as 4 abas — o app lê tudo e distribui o histórico nos meses certos</p>
+        <p className="text-sm text-zinc-500 mt-0.5">Envia a planilha com as abas de controle mensal</p>
       </div>
-
-      <div
-        onDrop={e => { e.preventDefault(); e.dataTransfer.files[0] && handleFile(e.dataTransfer.files[0]) }}
-        onDragOver={e => e.preventDefault()}
-        onClick={() => fileRef.current?.click()}
-        className="border-2 border-dashed border-[#2a2a2a] hover:border-green-500/40 rounded-2xl p-10 flex flex-col items-center justify-center cursor-pointer transition-colors"
-      >
-        {processing ? (
-          <><div className="w-8 h-8 border-2 border-green-400 border-t-transparent rounded-full animate-spin mb-3" /><p className="text-zinc-400 text-sm">Lendo abas da planilha...</p></>
-        ) : (
-          <>
-            <Upload size={32} className="text-zinc-600 mb-3" />
-            <p className="text-white text-sm font-medium text-center">Arraste ou clique para selecionar</p>
-            <p className="text-zinc-600 text-xs mt-1">.xlsx · .xls · .csv</p>
-          </>
-        )}
-        <input ref={fileRef} type="file" accept=".xlsx,.xls,.csv" className="hidden"
+      <div onDrop={e => { e.preventDefault(); e.dataTransfer.files[0] && handleFile(e.dataTransfer.files[0]) }}
+        onDragOver={e => e.preventDefault()} onClick={() => fileRef.current?.click()}
+        className="border-2 border-dashed border-[#2a2a2a] hover:border-green-500/40 rounded-2xl p-10 flex flex-col items-center justify-center cursor-pointer transition-colors">
+        {processing
+          ? <><div className="w-8 h-8 border-2 border-green-400 border-t-transparent rounded-full animate-spin mb-3" /><p className="text-zinc-400 text-sm">Lendo abas...</p></>
+          : <><Upload size={32} className="text-zinc-600 mb-3" /><p className="text-white text-sm font-medium text-center">Arraste ou clique para selecionar</p><p className="text-zinc-600 text-xs mt-1">.xlsx · .xls</p></>}
+        <input ref={fileRef} type="file" accept=".xlsx,.xls" className="hidden"
           onChange={e => e.target.files?.[0] && handleFile(e.target.files[0])} />
       </div>
-
       {error && (
         <div className="bg-red-500/10 border border-red-500/20 rounded-xl p-3 text-sm text-red-400 flex gap-2">
-          <AlertCircle size={15} className="shrink-0 mt-0.5" /> {error}
+          <AlertCircle size={15} className="shrink-0 mt-0.5" />{error}
         </div>
       )}
-
-      <div className="bg-[#161616] rounded-2xl p-4 border border-[#252525] space-y-2.5">
-        <p className="text-xs text-zinc-500 font-semibold uppercase tracking-wide">O que o app detecta</p>
+      <div className="bg-[#161616] rounded-2xl p-4 border border-[#252525] space-y-2">
+        <p className="text-xs text-zinc-500 font-semibold uppercase tracking-wide">O que é importado</p>
         <div className="space-y-1.5 text-xs text-zinc-400">
-          <p>✓ Todas as abas da planilha de uma vez</p>
-          <p>✓ Tabela de meses × categorias (formato mais comum)</p>
-          <p>✓ Lista de transações com data e valor</p>
-          <p>✓ Ano de cada aba (pelo nome da aba ou dados)</p>
-          <p>✓ Categorias mapeadas automaticamente</p>
-          <p>✓ Cada lançamento vai pro mês e ano correto</p>
+          <p>✓ Abas CONTROLE 2022 / 2024 / 2025 / 2026 — gastos mensais com status</p>
+          <p>✓ Aba RECEITA — receita por parcela/mês</p>
+          <p>✓ Aba RECEITA - MES — receitas detalhadas por serviço</p>
+          <p>✓ Vencimentos e status pago/pendente preservados</p>
+          <p>✗ Abas de planejamento (Página8) são ignoradas</p>
         </div>
       </div>
     </div>
