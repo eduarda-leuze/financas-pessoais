@@ -1,56 +1,41 @@
-import { CheckCircle, Clock, AlertCircle } from 'lucide-react'
 import { formatCurrency } from '../../lib/utils'
 import type { Transaction } from '../../types'
 
-interface StatusSummaryProps {
-  transactions: Transaction[]
-}
+interface Props { transactions: Transaction[] }
 
-export function StatusSummary({ transactions }: StatusSummaryProps) {
-  const expenses = transactions.filter(t => t.type === 'expense')
-  const paid = expenses.filter(t => t.status === 'paid')
-  const pending = expenses.filter(t => t.status === 'pending')
-  const overdue = expenses.filter(t => t.status === 'overdue')
+export function StatusSummary({ transactions }: Props) {
+  const paid    = transactions.filter(t => t.status === 'paid')
+  const pending = transactions.filter(t => t.status === 'pending')
+  const overdue = transactions.filter(t => t.status === 'overdue')
 
-  const sum = (arr: Transaction[]) => arr.reduce((s, t) => s + t.amount, 0)
+  const sum = (arr: Transaction[]) => arr.filter(t => t.type === 'expense').reduce((s, t) => s + t.amount, 0)
 
   const items = [
-    {
-      label: 'Pagas',
-      count: paid.length,
-      amount: sum(paid),
-      icon: CheckCircle,
-      color: 'text-green-400',
-      bg: 'bg-green-500/10',
-    },
-    {
-      label: 'Pendentes',
-      count: pending.length,
-      amount: sum(pending),
-      icon: Clock,
-      color: 'text-yellow-400',
-      bg: 'bg-yellow-500/10',
-    },
-    {
-      label: 'Vencidas',
-      count: overdue.length,
-      amount: sum(overdue),
-      icon: AlertCircle,
-      color: 'text-red-400',
-      bg: 'bg-red-500/10',
-    },
+    { label: 'Pagas',    count: paid.length,    amount: sum(paid),    color: '#22c55e', bg: 'rgba(34,197,94,0.08)',   dot: '#22c55e' },
+    { label: 'Pendentes',count: pending.length,  amount: sum(pending), color: '#fbbf24', bg: 'rgba(251,191,36,0.08)',  dot: '#fbbf24' },
+    { label: 'Vencidas', count: overdue.length,  amount: sum(overdue), color: '#f87171', bg: 'rgba(248,113,113,0.08)', dot: '#f87171' },
   ]
 
   return (
-    <div className="mx-4 grid grid-cols-3 gap-2">
-      {items.map(({ label, count, amount, icon: Icon, color, bg }) => (
-        <div key={label} className={`${bg} rounded-xl p-3 border border-white/5`}>
-          <Icon size={16} className={`${color} mb-1.5`} />
-          <p className={`text-lg font-bold ${color}`}>{count}</p>
-          <p className="text-[10px] text-zinc-500">{label}</p>
-          <p className="text-[11px] text-zinc-400 mt-0.5">{formatCurrency(amount)}</p>
-        </div>
-      ))}
+    <div className="px-5">
+      <div className="grid grid-cols-3 gap-2.5">
+        {items.map(item => (
+          <div
+            key={item.label}
+            className="rounded-2xl p-3.5 border border-[#252525]"
+            style={{ background: item.bg }}
+          >
+            <div className="flex items-center gap-1.5 mb-2">
+              <div className="w-1.5 h-1.5 rounded-full" style={{ background: item.color }} />
+              <span className="text-[10px] font-medium uppercase tracking-wide" style={{ color: item.color }}>
+                {item.label}
+              </span>
+            </div>
+            <p className="text-xl font-bold text-white">{item.count}</p>
+            <p className="text-[10px] text-zinc-500 mt-0.5">{formatCurrency(item.amount)}</p>
+          </div>
+        ))}
+      </div>
     </div>
   )
 }

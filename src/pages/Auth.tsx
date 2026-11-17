@@ -1,97 +1,108 @@
 import { useState } from 'react'
+import { Eye, EyeOff, TrendingUp } from 'lucide-react'
 import { useAuth } from '../context/AuthContext'
 
 export function Auth() {
   const { signIn, signUp } = useAuth()
-  const [mode, setMode] = useState<'login' | 'signup'>('login')
+  const [tab, setTab] = useState<'login' | 'signup'>('login')
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
+  const [showPass, setShowPass] = useState(false)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
   const [success, setSuccess] = useState('')
 
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault()
-    setError('')
-    setSuccess('')
-    setLoading(true)
-
-    if (mode === 'login') {
-      const { error } = await signIn(email, password)
-      if (error) setError('E-mail ou senha incorretos')
-    } else {
-      const { error } = await signUp(email, password)
-      if (error) setError(error.message)
-      else setSuccess('Conta criada! Verifique seu e-mail para confirmar.')
-    }
+  const handle = async () => {
+    if (!email || !password) { setError('Preencha todos os campos'); return }
+    setLoading(true); setError(''); setSuccess('')
+    const { error: err } = tab === 'login'
+      ? await signIn(email, password)
+      : await signUp(email, password)
     setLoading(false)
+    if (err) setError(err.message === 'Invalid login credentials' ? 'Email ou senha incorretos' : err.message)
+    else if (tab === 'signup') setSuccess('Conta criada! Faça login para continuar.')
   }
 
   return (
-    <div className="min-h-dvh flex flex-col items-center justify-center px-4 bg-[#0f0f0f]">
+    <div className="min-h-dvh flex flex-col items-center justify-center px-6 py-12 bg-[#0d0d0d]">
+      {/* Brand */}
+      <div className="mb-10 text-center">
+        <div className="w-16 h-16 rounded-2xl bg-green-500/10 border border-green-500/20 flex items-center justify-center mx-auto mb-4">
+          <TrendingUp size={28} className="text-green-400" />
+        </div>
+        <h1 className="text-2xl font-bold text-white tracking-tight">Finanças</h1>
+        <p className="text-sm text-zinc-500 mt-1">Controle financeiro pessoal</p>
+      </div>
+
+      {/* Card */}
       <div className="w-full max-w-sm">
-        {/* Logo / branding */}
-        <div className="text-center mb-8">
-          <div className="text-5xl mb-3">💰</div>
-          <h1 className="text-2xl font-bold text-white">FinançasPessoais</h1>
-          <p className="text-zinc-500 text-sm mt-1">Controle financeiro simples e eficiente</p>
+        {/* Tabs */}
+        <div className="flex bg-[#161616] rounded-xl p-1 mb-6 border border-[#252525]">
+          {(['login', 'signup'] as const).map(t => (
+            <button
+              key={t}
+              onClick={() => { setTab(t); setError(''); setSuccess('') }}
+              className={`flex-1 py-2 rounded-lg text-sm font-medium transition-all ${
+                tab === t ? 'bg-[#252525] text-white' : 'text-zinc-500 hover:text-zinc-300'
+              }`}
+            >
+              {t === 'login' ? 'Entrar' : 'Criar conta'}
+            </button>
+          ))}
         </div>
 
-        {/* Card */}
-        <div className="bg-[#1a1a1a] rounded-2xl border border-[#2a2a2a] p-6">
-          {/* Tabs */}
-          <div className="flex rounded-xl overflow-hidden border border-[#2a2a2a] mb-6">
-            <button
-              onClick={() => { setMode('login'); setError(''); setSuccess('') }}
-              className={`flex-1 py-2.5 text-sm font-medium transition-colors ${mode === 'login' ? 'bg-green-500 text-black' : 'text-zinc-500 hover:text-white'}`}
-            >
-              Entrar
-            </button>
-            <button
-              onClick={() => { setMode('signup'); setError(''); setSuccess('') }}
-              className={`flex-1 py-2.5 text-sm font-medium transition-colors ${mode === 'signup' ? 'bg-green-500 text-black' : 'text-zinc-500 hover:text-white'}`}
-            >
-              Criar conta
-            </button>
+        {/* Fields */}
+        <div className="space-y-3">
+          <div>
+            <label className="text-xs text-zinc-500 font-medium mb-1.5 block">Email</label>
+            <input
+              type="email"
+              value={email}
+              onChange={e => setEmail(e.target.value)}
+              placeholder="seu@email.com"
+              className="w-full bg-[#161616] border border-[#252525] rounded-xl px-4 py-3.5 text-white text-sm placeholder-zinc-600 focus:outline-none focus:border-zinc-500 transition-colors"
+            />
           </div>
-
-          <form onSubmit={handleSubmit} className="space-y-4">
-            <div>
-              <label className="block text-xs text-zinc-500 mb-1.5">E-mail</label>
+          <div>
+            <label className="text-xs text-zinc-500 font-medium mb-1.5 block">Senha</label>
+            <div className="relative">
               <input
-                type="email"
-                value={email}
-                onChange={e => setEmail(e.target.value)}
-                required
-                placeholder="seu@email.com"
-                className="w-full bg-[#111] border border-[#2a2a2a] rounded-xl px-3.5 py-3 text-white placeholder:text-zinc-600 focus:outline-none focus:border-zinc-500 text-sm"
-              />
-            </div>
-            <div>
-              <label className="block text-xs text-zinc-500 mb-1.5">Senha</label>
-              <input
-                type="password"
+                type={showPass ? 'text' : 'password'}
                 value={password}
                 onChange={e => setPassword(e.target.value)}
-                required
+                onKeyDown={e => e.key === 'Enter' && handle()}
                 placeholder="••••••••"
-                minLength={6}
-                className="w-full bg-[#111] border border-[#2a2a2a] rounded-xl px-3.5 py-3 text-white placeholder:text-zinc-600 focus:outline-none focus:border-zinc-500 text-sm"
+                className="w-full bg-[#161616] border border-[#252525] rounded-xl px-4 py-3.5 pr-12 text-white text-sm placeholder-zinc-600 focus:outline-none focus:border-zinc-500 transition-colors"
               />
+              <button
+                type="button"
+                onClick={() => setShowPass(!showPass)}
+                className="absolute right-3.5 top-1/2 -translate-y-1/2 text-zinc-600 hover:text-zinc-400 transition-colors"
+              >
+                {showPass ? <EyeOff size={16} /> : <Eye size={16} />}
+              </button>
             </div>
-
-            {error && <p className="text-red-400 text-sm">{error}</p>}
-            {success && <p className="text-green-400 text-sm">{success}</p>}
-
-            <button
-              type="submit"
-              disabled={loading}
-              className="w-full py-3.5 rounded-xl bg-green-500 text-black font-semibold text-sm hover:bg-green-400 transition-colors disabled:opacity-50"
-            >
-              {loading ? '...' : mode === 'login' ? 'Entrar' : 'Criar conta'}
-            </button>
-          </form>
+          </div>
         </div>
+
+        {error && (
+          <div className="mt-4 px-4 py-3 rounded-xl bg-red-500/10 border border-red-500/20 text-red-400 text-sm">
+            {error}
+          </div>
+        )}
+        {success && (
+          <div className="mt-4 px-4 py-3 rounded-xl bg-green-500/10 border border-green-500/20 text-green-400 text-sm">
+            {success}
+          </div>
+        )}
+
+        <button
+          onClick={handle}
+          disabled={loading}
+          className="mt-5 w-full py-3.5 rounded-xl bg-green-500 hover:bg-green-400 active:bg-green-600 text-black font-semibold text-sm transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+        >
+          {loading ? 'Aguarde...' : tab === 'login' ? 'Entrar' : 'Criar conta'}
+        </button>
       </div>
     </div>
   )
