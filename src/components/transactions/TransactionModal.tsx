@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import { X, ArrowDownCircle, ArrowUpCircle } from 'lucide-react'
+import { X, ArrowDownCircle, ArrowUpCircle, Trash2 } from 'lucide-react'
 import { useApp } from '../../context/AppContext'
 import { getCurrentMonthYear } from '../../lib/utils'
 import type { Transaction, TransactionType } from '../../types'
@@ -11,8 +11,9 @@ interface Props {
 }
 
 export function TransactionModal({ onClose, defaultType = 'expense', transaction }: Props) {
-  const { categories, addTransaction, updateTransaction, currentMonth, currentYear } = useApp()
+  const { categories, addTransaction, updateTransaction, deleteTransaction, currentMonth, currentYear } = useApp()
   const isEdit = !!transaction
+  const [confirmDelete, setConfirmDelete] = useState(false)
   const [type, setType] = useState<TransactionType>(transaction?.type ?? defaultType)
   const [description, setDescription] = useState(transaction?.description ?? '')
   const [amount, setAmount] = useState(transaction ? String(transaction.amount) : '')
@@ -182,6 +183,33 @@ export function TransactionModal({ onClose, defaultType = 'expense', transaction
           >
             {saving ? 'Salvando...' : isEdit ? 'Salvar alterações' : 'Salvar'}
           </button>
+
+          {isEdit && (
+            confirmDelete ? (
+              <div className="flex gap-2">
+                <button
+                  onClick={() => setConfirmDelete(false)}
+                  className="flex-1 py-2.5 rounded-xl bg-[#1a1a1a] border border-[#252525] text-zinc-500 text-xs font-medium"
+                >
+                  Cancelar
+                </button>
+                <button
+                  onClick={async () => { await deleteTransaction(transaction!.id); onClose() }}
+                  className="flex-1 py-2.5 rounded-xl bg-red-500/15 border border-red-500/25 text-red-400 text-xs font-semibold"
+                >
+                  Confirmar exclusão
+                </button>
+              </div>
+            ) : (
+              <button
+                onClick={() => setConfirmDelete(true)}
+                className="w-full flex items-center justify-center gap-1.5 py-2 text-xs text-zinc-600 hover:text-red-400 transition-colors"
+              >
+                <Trash2 size={12} />
+                Excluir lançamento
+              </button>
+            )
+          )}
         </div>
       </div>
     </div>

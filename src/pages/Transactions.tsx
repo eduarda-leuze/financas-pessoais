@@ -88,14 +88,6 @@ export function Transactions() {
           </div>
         </div>
 
-        {/* Add button */}
-        <button
-          onClick={() => setShowModal(true)}
-          className="w-full flex items-center justify-center gap-2 py-3 rounded-2xl bg-[#161616] border border-[#252525] text-sm font-medium text-zinc-400 hover:border-zinc-500 active:scale-[0.98] transition-all"
-        >
-          <Plus size={15} className="text-green-400" />
-          Novo lançamento
-        </button>
       </div>
 
       {/* List */}
@@ -132,6 +124,14 @@ export function Transactions() {
           })}
         </div>
       )}
+
+      {/* FAB */}
+      <button
+        onClick={() => setShowModal(true)}
+        className="fixed bottom-24 right-5 z-30 w-14 h-14 rounded-2xl bg-green-500 shadow-lg shadow-green-500/20 flex items-center justify-center active:scale-95 transition-transform lg:bottom-6"
+      >
+        <Plus size={22} className="text-black" strokeWidth={2.5} />
+      </button>
 
       {showModal && <TransactionModal onClose={() => setShowModal(false)} />}
     </div>
