@@ -15,6 +15,7 @@ interface AppContextType {
   loadTransactions: () => Promise<void>
   loadCategories: () => Promise<void>
   addTransaction: (t: Omit<Transaction, 'id' | 'user_id' | 'created_at'>) => Promise<void>
+  bulkImport: (rows: Omit<Transaction, 'id' | 'user_id' | 'created_at'>[]) => Promise<{ count: number; error?: string }>
   updateTransaction: (id: string, t: Partial<Transaction>) => Promise<void>
   deleteTransaction: (id: string) => Promise<void>
   markAsPaid: (id: string) => Promise<void>
@@ -105,6 +106,20 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     await loadTransactions()
   }
 
+  const bulkImport = async (rows: Omit<Transaction, 'id' | 'user_id' | 'created_at'>[]) => {
+    if (!user) return { count: 0, error: 'Não autenticado' }
+    const payload = rows.map(r => ({ ...r, user_id: user.id }))
+    // insert in batches of 500
+    let count = 0
+    for (let i = 0; i < payload.length; i += 500) {
+      const { error } = await supabase.from('transactions').insert(payload.slice(i, i + 500))
+      if (error) return { count, error: error.message }
+      count += Math.min(500, payload.length - i)
+    }
+    await loadTransactions()
+    return { count }
+  }
+
   const markAsPaid = async (id: string) => {
     const today = new Date().toISOString().split('T')[0]
     await supabase.from('transactions').update({
@@ -119,7 +134,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       categories, transactions, currentMonth, currentYear,
       setCurrentMonth, setCurrentYear,
       loadTransactions, loadCategories,
-      addTransaction, updateTransaction, deleteTransaction, markAsPaid,
+      addTransaction, bulkImport, updateTransaction, deleteTransaction, markAsPaid,
       loading,
     }}>
       {children}
