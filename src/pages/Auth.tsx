@@ -20,7 +20,10 @@ export function Auth() {
       : await signUp(email, password)
     setLoading(false)
     if (err) setError(err.message === 'Invalid login credentials' ? 'Email ou senha incorretos' : err.message)
-    else if (tab === 'signup') setSuccess('Conta criada! Faça login para continuar.')
+    else if (tab === 'signup') {
+      setSuccess('Conta criada! Faça login abaixo.')
+      setTab('login')
+    }
   }
 
   return (
