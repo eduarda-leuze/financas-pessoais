@@ -145,7 +145,7 @@ export function TransactionModal({ onClose, defaultType = 'expense', transaction
             </div>
 
             <div>
-              <label className="text-xs text-zinc-500 font-medium mb-1.5 block">Vencimento</label>
+              <label className="text-xs text-zinc-500 font-medium mb-1.5 block">{type === 'income' ? 'Data de recebimento' : 'Vencimento'}</label>
               <input
                 type="date"
                 value={dueDate}
