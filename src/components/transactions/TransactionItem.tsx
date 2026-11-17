@@ -1,7 +1,8 @@
 import { useState } from 'react'
-import { ChevronRight, Trash2, Check } from 'lucide-react'
+import { ChevronRight, Trash2, Check, Pencil } from 'lucide-react'
 import { useApp } from '../../context/AppContext'
 import { formatCurrency, formatDate, getDaysUntilDue } from '../../lib/utils'
+import { TransactionModal } from './TransactionModal'
 import type { Transaction } from '../../types'
 
 interface Props { transaction: Transaction }
@@ -10,6 +11,7 @@ export function TransactionItem({ transaction: t }: Props) {
   const { deleteTransaction, markAsPaid } = useApp()
   const [expanded, setExpanded] = useState(false)
   const [confirming, setConfirming] = useState(false)
+  const [editing, setEditing] = useState(false)
 
   const days = t.due_date ? getDaysUntilDue(t.due_date) : null
   const isExpense = t.type === 'expense'
@@ -76,6 +78,12 @@ export function TransactionItem({ transaction: t }: Props) {
               Marcar como pago
             </button>
           )}
+          <button
+            onClick={() => setEditing(true)}
+            className="w-10 flex items-center justify-center rounded-xl bg-[#1e1e1e] border border-[#2a2a2a] text-zinc-500 hover:text-white transition-colors"
+          >
+            <Pencil size={14} />
+          </button>
           {confirming ? (
             <button
               onClick={() => deleteTransaction(t.id)}
@@ -92,6 +100,10 @@ export function TransactionItem({ transaction: t }: Props) {
             </button>
           )}
         </div>
+      )}
+
+      {editing && (
+        <TransactionModal transaction={t} onClose={() => setEditing(false)} />
       )}
     </div>
   )

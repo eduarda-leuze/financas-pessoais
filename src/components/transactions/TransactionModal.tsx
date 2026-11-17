@@ -2,52 +2,68 @@ import { useState, useEffect } from 'react'
 import { X, ArrowDownCircle, ArrowUpCircle } from 'lucide-react'
 import { useApp } from '../../context/AppContext'
 import { getCurrentMonthYear } from '../../lib/utils'
-import type { TransactionType } from '../../types'
+import type { Transaction, TransactionType } from '../../types'
 
 interface Props {
   onClose: () => void
   defaultType?: TransactionType
+  transaction?: Transaction
 }
 
-export function TransactionModal({ onClose, defaultType = 'expense' }: Props) {
-  const { categories, addTransaction, currentMonth, currentYear } = useApp()
-  const [type, setType] = useState<TransactionType>(defaultType)
-  const [description, setDescription] = useState('')
-  const [amount, setAmount] = useState('')
-  const [categoryId, setCategoryId] = useState('')
-  const [dueDate, setDueDate] = useState('')
-  const [status, setStatus] = useState<'pending' | 'paid'>('pending')
+export function TransactionModal({ onClose, defaultType = 'expense', transaction }: Props) {
+  const { categories, addTransaction, updateTransaction, currentMonth, currentYear } = useApp()
+  const isEdit = !!transaction
+  const [type, setType] = useState<TransactionType>(transaction?.type ?? defaultType)
+  const [description, setDescription] = useState(transaction?.description ?? '')
+  const [amount, setAmount] = useState(transaction ? String(transaction.amount) : '')
+  const [categoryId, setCategoryId] = useState(transaction?.category_id ?? '')
+  const [dueDate, setDueDate] = useState(transaction?.due_date ?? '')
+  const [status, setStatus] = useState<'pending' | 'paid'>(
+    (transaction?.status === 'paid' ? 'paid' : 'pending')
+  )
   const [saving, setSaving] = useState(false)
 
   const { month, year } = getCurrentMonthYear()
   const filteredCats = categories.filter(c => c.type === type)
 
   useEffect(() => {
-    setCategoryId('')
-  }, [type])
+    if (!isEdit) setCategoryId('')
+  }, [type, isEdit])
 
   const handleSave = async () => {
     if (!description.trim() || !amount) return
     setSaving(true)
-    await addTransaction({
-      description: description.trim(),
-      amount: parseFloat(amount.replace(',', '.')),
-      type,
-      status,
-      category_id: categoryId,
-      due_date: dueDate || undefined,
-      month: currentMonth || month,
-      year: currentYear || year,
-      source: 'manual',
-    })
+    if (isEdit) {
+      await updateTransaction(transaction.id, {
+        description: description.trim(),
+        amount: parseFloat(amount.replace(',', '.')),
+        type,
+        status,
+        category_id: categoryId,
+        due_date: dueDate || undefined,
+      })
+    } else {
+      await addTransaction({
+        description: description.trim(),
+        amount: parseFloat(amount.replace(',', '.')),
+        type,
+        status,
+        category_id: categoryId,
+        due_date: dueDate || undefined,
+        month: currentMonth || month,
+        year: currentYear || year,
+        source: 'manual',
+      })
+    }
     setSaving(false)
     onClose()
   }
 
   return (
-    <div className="fixed inset-0 z-50 flex items-end" onClick={onClose}>
+    <div className="fixed inset-0 z-50 flex items-center justify-center px-4 lg:items-center" onClick={onClose}>
+      <div className="absolute inset-0 bg-black/60" />
       <div
-        className="w-full max-w-lg mx-auto rounded-t-3xl border-t border-x border-[#252525] overflow-hidden"
+        className="relative w-full max-w-md rounded-3xl border border-[#252525] overflow-hidden"
         style={{ background: '#141414' }}
         onClick={e => e.stopPropagation()}
       >
@@ -58,7 +74,7 @@ export function TransactionModal({ onClose, defaultType = 'expense' }: Props) {
 
         {/* Header */}
         <div className="flex items-center justify-between px-5 py-3">
-          <h2 className="text-base font-semibold text-white">Novo lançamento</h2>
+          <h2 className="text-base font-semibold text-white">{isEdit ? 'Editar lançamento' : 'Novo lançamento'}</h2>
           <button onClick={onClose} className="w-8 h-8 flex items-center justify-center rounded-xl bg-[#1e1e1e] text-zinc-500 hover:text-white transition-colors">
             <X size={15} />
           </button>
@@ -164,7 +180,7 @@ export function TransactionModal({ onClose, defaultType = 'expense' }: Props) {
             disabled={saving || !description.trim() || !amount}
             className="w-full py-3.5 rounded-xl bg-green-500 hover:bg-green-400 text-black font-semibold text-sm transition-colors disabled:opacity-40 disabled:cursor-not-allowed mt-1"
           >
-            {saving ? 'Salvando...' : 'Salvar'}
+            {saving ? 'Salvando...' : isEdit ? 'Salvar alterações' : 'Salvar'}
           </button>
         </div>
       </div>
