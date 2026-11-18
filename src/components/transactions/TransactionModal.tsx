@@ -47,8 +47,12 @@ export function TransactionModal({ onClose, defaultType = 'expense', defaultIsBi
   const [status, setStatus]           = useState<'pending' | 'paid'>(
     transaction?.status === 'paid' ? 'paid' : 'pending'
   )
-  const [saving, setSaving]       = useState(false)
+  const [saving, setSaving]           = useState(false)
   const [confirmDelete, setConfirmDelete] = useState(false)
+  // convert existing bill to recurring
+  const [makeRecurring, setMakeRecurring] = useState<Recurrence>('once')
+  const [makeInstallments, setMakeInstallments] = useState('12')
+  const canConvertToRecurring = isEdit && isBill && !transaction?.recurring_group_id
 
   const { month, year } = getCurrentMonthYear()
 
@@ -116,15 +120,56 @@ export function TransactionModal({ onClose, defaultType = 'expense', defaultIsBi
     const baseYear  = forceYear  ?? currentYear  ?? year
 
     if (isEdit) {
-      await updateTransaction(transaction.id, {
-        description: descTrimmed,
-        amount: amountNum,
-        type,
-        status: effectiveStatus,
-        is_bill: isBill,
-        category_id: categoryId,
-        due_date: dueDate || undefined,
-      })
+      if (canConvertToRecurring && makeRecurring !== 'once') {
+        // Convert existing bill to recurring/installment
+        const groupId = uuidv4()
+        const count = makeRecurring === 'monthly' ? 12 : Math.max(1, parseInt(makeInstallments) || 12)
+        const isInstallment = makeRecurring === 'installment'
+        const baseDateStr = dueDate || transaction!.due_date || ''
+        // Update the existing transaction (becomes item #1)
+        await updateTransaction(transaction!.id, {
+          description: isInstallment ? `${descTrimmed} (1/${count})` : descTrimmed,
+          amount: amountNum,
+          type,
+          status: effectiveStatus,
+          is_bill: true,
+          category_id: categoryId,
+          due_date: dueDate || undefined,
+          recurring_group_id: groupId,
+          installment_number: isInstallment ? 1 : null,
+          total_installments: isInstallment ? count : null,
+        })
+        // Bulk-create future copies (months 2…N)
+        const futureRows = Array.from({ length: count - 1 }, (_, i) => {
+          const { date: dd, month: m, year: y } = addMonths(baseDateStr, i + 1)
+          return {
+            description: isInstallment ? `${descTrimmed} (${i + 2}/${count})` : descTrimmed,
+            amount: amountNum,
+            type,
+            status: 'pending' as const,
+            is_bill: true,
+            category_id: categoryId,
+            due_date: dd,
+            month: m,
+            year: y,
+            source: 'manual' as const,
+            recurring_group_id: groupId,
+            installment_number: isInstallment ? i + 2 : null,
+            total_installments: isInstallment ? count : null,
+          }
+        })
+        if (futureRows.length > 0) await bulkImport(futureRows)
+      } else {
+        await updateTransaction(transaction!.id, {
+          description: descTrimmed,
+          amount: amountNum,
+          type,
+          status: effectiveStatus,
+          is_bill: isBill,
+          category_id: categoryId,
+          due_date: dueDate || undefined,
+        })
+      }
       setSaving(false)
       onClose()
       return
@@ -385,6 +430,49 @@ export function TransactionModal({ onClose, defaultType = 'expense', defaultIsBi
             </div>
           )}
 
+          {/* Convert to recurring — only when editing a non-recurring bill */}
+          {canConvertToRecurring && (
+            <div className="rounded-2xl border border-[#252525] p-3 bg-[#1a1a1a] space-y-2">
+              <label className="text-xs text-zinc-500 font-medium flex items-center gap-1.5">
+                <RefreshCw size={11} className="text-green-400" />
+                Tornar recorrente
+              </label>
+              <div className="flex bg-[#141414] rounded-xl p-1 border border-[#252525]">
+                {(['once', 'monthly', 'installment'] as Recurrence[]).map(r => (
+                  <button
+                    key={r}
+                    onClick={() => setMakeRecurring(r)}
+                    className={`flex-1 py-2 rounded-lg text-xs font-medium transition-all ${
+                      makeRecurring === r ? 'bg-[#252525] text-white' : 'text-zinc-600'
+                    }`}
+                  >
+                    {r === 'once' ? 'Não' : r === 'monthly' ? 'Mensal' : 'Parcelada'}
+                  </button>
+                ))}
+              </div>
+              {makeRecurring === 'installment' && (
+                <div className="flex items-center gap-2">
+                  <label className="text-xs text-zinc-500 shrink-0">Total de parcelas:</label>
+                  <input
+                    type="number"
+                    min="2"
+                    max="120"
+                    value={makeInstallments}
+                    onChange={e => setMakeInstallments(e.target.value)}
+                    className="w-20 bg-[#141414] border border-[#252525] rounded-lg px-3 py-1.5 text-xs text-white focus:outline-none focus:border-zinc-500 text-center"
+                  />
+                  <span className="text-xs text-zinc-600">meses</span>
+                </div>
+              )}
+              {makeRecurring === 'monthly' && (
+                <p className="text-[11px] text-zinc-600 flex items-center gap-1">
+                  <RefreshCw size={9} className="text-green-500" />
+                  Esta conta vai repetir por mais 11 meses
+                </p>
+              )}
+            </div>
+          )}
+
           <button
             onClick={handleSave}
             disabled={saving || !description.trim() || !amount}
@@ -394,7 +482,21 @@ export function TransactionModal({ onClose, defaultType = 'expense', defaultIsBi
                 : 'bg-green-500 hover:bg-green-400 text-black'
             }`}
           >
-            {saving ? 'Salvando...' : isEdit ? 'Salvar alterações' : mode === 'savings' ? 'Guardar poupança' : recurrence === 'monthly' ? 'Criar mensal (12 meses)' : recurrence === 'installment' ? `Criar ${installments || '?'} parcelas` : 'Salvar'}
+            {saving
+              ? 'Salvando...'
+              : isEdit
+                ? canConvertToRecurring && makeRecurring !== 'once'
+                  ? makeRecurring === 'monthly'
+                    ? 'Salvar e tornar mensal'
+                    : `Salvar e criar ${makeInstallments || '?'} parcelas`
+                  : 'Salvar alterações'
+                : mode === 'savings'
+                  ? 'Guardar poupança'
+                  : recurrence === 'monthly'
+                    ? 'Criar mensal (12 meses)'
+                    : recurrence === 'installment'
+                      ? `Criar ${installments || '?'} parcelas`
+                      : 'Salvar'}
           </button>
 
           {isEdit && (

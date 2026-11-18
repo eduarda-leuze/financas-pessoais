@@ -1,10 +1,10 @@
 import { useState } from 'react'
-import { Check, Plus, ChevronDown, ChevronUp, Calendar, RefreshCw } from 'lucide-react'
+import { Check, Plus, ChevronDown, ChevronUp, Calendar, RefreshCw, Pencil } from 'lucide-react'
 import { useApp } from '../context/AppContext'
 import { PageHeader } from '../components/layout/PageHeader'
 import { TransactionModal } from '../components/transactions/TransactionModal'
 import { formatCurrency } from '../lib/utils'
-import type { TransactionStatus } from '../types'
+import type { Transaction, TransactionStatus } from '../types'
 
 function fmtDate(d: string | null | undefined) {
   if (!d) return '—'
@@ -36,8 +36,9 @@ const STATUS_LABEL: Record<string, string> = {
 
 export function Contas() {
   const { transactions, markAsPaid, loading } = useApp()
-  const [filter, setFilter] = useState<TransactionStatus | 'all'>('all')
+  const [filter, setFilter]   = useState<TransactionStatus | 'all'>('all')
   const [showModal, setShowModal] = useState(false)
+  const [editTx, setEditTx]   = useState<Transaction | null>(null)
   const [expanded, setExpanded] = useState<string | null>(null)
   const [marking, setMarking] = useState<string | null>(null)
 
@@ -250,30 +251,39 @@ export function Contas() {
 
                 {/* Expanded detail */}
                 {isExp && (
-                  <div className="px-4 pb-3 border-t border-[#252525] pt-3 grid grid-cols-2 gap-x-4 gap-y-2">
-                    <div>
-                      <p className="text-[10px] text-zinc-600 font-medium mb-0.5">Status</p>
-                      <span
-                        className="text-xs font-semibold px-2 py-0.5 rounded-full"
-                        style={{ background: STATUS_COLOR[t.status] + '22', color: STATUS_COLOR[t.status] }}
-                      >
-                        {STATUS_LABEL[t.status]}
-                      </span>
-                    </div>
-                    <div>
-                      <p className="text-[10px] text-zinc-600 font-medium mb-0.5">Valor</p>
-                      <p className="text-xs font-semibold text-white">{formatCurrency(t.amount)}</p>
-                    </div>
-                    <div>
-                      <p className="text-[10px] text-zinc-600 font-medium mb-0.5 flex items-center gap-1"><Calendar size={9} /> Vencimento</p>
-                      <p className="text-xs text-zinc-400">{fmtDate(t.due_date)}</p>
-                    </div>
-                    {t.paid_date && (
+                  <div className="px-4 pb-3 border-t border-[#252525] pt-3 space-y-3">
+                    <div className="grid grid-cols-2 gap-x-4 gap-y-2">
                       <div>
-                        <p className="text-[10px] text-zinc-600 font-medium mb-0.5 flex items-center gap-1"><Calendar size={9} /> Pagamento</p>
-                        <p className="text-xs text-zinc-400">{fmtDate(t.paid_date)}</p>
+                        <p className="text-[10px] text-zinc-600 font-medium mb-0.5">Status</p>
+                        <span
+                          className="text-xs font-semibold px-2 py-0.5 rounded-full"
+                          style={{ background: STATUS_COLOR[t.status] + '22', color: STATUS_COLOR[t.status] }}
+                        >
+                          {STATUS_LABEL[t.status]}
+                        </span>
                       </div>
-                    )}
+                      <div>
+                        <p className="text-[10px] text-zinc-600 font-medium mb-0.5">Valor</p>
+                        <p className="text-xs font-semibold text-white">{formatCurrency(t.amount)}</p>
+                      </div>
+                      <div>
+                        <p className="text-[10px] text-zinc-600 font-medium mb-0.5 flex items-center gap-1"><Calendar size={9} /> Vencimento</p>
+                        <p className="text-xs text-zinc-400">{fmtDate(t.due_date)}</p>
+                      </div>
+                      {t.paid_date && (
+                        <div>
+                          <p className="text-[10px] text-zinc-600 font-medium mb-0.5 flex items-center gap-1"><Calendar size={9} /> Pagamento</p>
+                          <p className="text-xs text-zinc-400">{fmtDate(t.paid_date)}</p>
+                        </div>
+                      )}
+                    </div>
+                    <button
+                      onClick={e => { e.stopPropagation(); setEditTx(t); setExpanded(null) }}
+                      className="w-full flex items-center justify-center gap-1.5 py-2 rounded-xl bg-[#1e1e1e] border border-[#2a2a2a] text-xs font-medium text-zinc-400 hover:text-white hover:border-zinc-500 transition-all active:scale-[0.98]"
+                    >
+                      <Pencil size={11} />
+                      Editar conta
+                    </button>
                   </div>
                 )}
               </div>
@@ -283,6 +293,7 @@ export function Contas() {
       )}
 
       {showModal && <TransactionModal onClose={() => setShowModal(false)} defaultType="expense" defaultIsBill={true} />}
+      {editTx && <TransactionModal transaction={editTx} onClose={() => setEditTx(null)} />}
     </div>
   )
 }
