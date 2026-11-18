@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import { Plus, ArrowDownCircle, ArrowUpCircle } from 'lucide-react'
+import { ArrowDownCircle, ArrowUpCircle, PiggyBank } from 'lucide-react'
 import { useApp } from '../context/AppContext'
 import { useAuth } from '../context/AuthContext'
 import { supabase } from '../lib/supabase'
@@ -28,10 +28,11 @@ export function Dashboard() {
   const { user } = useAuth()
   const { prevIncome, prevExpense, upcoming, loadingExtras } = useDashboardExtras(THIS_MONTH, THIS_YEAR)
 
-  const [txs, setTxs]         = useState<Transaction[]>([])
-  const [loading, setLoading] = useState(true)
-  const [showModal, setShowModal]   = useState(false)
-  const [modalType, setModalType]   = useState<TransactionType>('expense')
+  const [txs, setTxs]             = useState<Transaction[]>([])
+  const [loading, setLoading]     = useState(true)
+  const [showModal, setShowModal] = useState(false)
+  const [modalType, setModalType] = useState<TransactionType>('expense')
+  const [modalIsSavings, setModalIsSavings] = useState(false)
 
   useEffect(() => {
     if (!user) return
@@ -56,7 +57,11 @@ export function Dashboard() {
 
   const recent = txs.slice(0, 6)
 
-  const openModal = (type: TransactionType) => { setModalType(type); setShowModal(true) }
+  const openModal = (type: TransactionType, isSavings = false) => {
+    setModalType(type)
+    setModalIsSavings(isSavings)
+    setShowModal(true)
+  }
   const isLoading = loading || loadingExtras
 
   return (
@@ -72,8 +77,12 @@ export function Dashboard() {
         <>
           {/* ── MOBILE layout ── */}
           <div className="lg:hidden space-y-4 pb-24">
-            <SummaryCards balance={balance} income={income} expense={expense} />
-            <QuickActions onExpense={() => openModal('expense')} onIncome={() => openModal('income')} />
+            <SummaryCards balance={balance} income={income} expense={expense} savings={savings} />
+            <QuickActions
+              onExpense={() => openModal('expense')}
+              onIncome={() => openModal('income')}
+              onSavings={() => openModal('expense', true)}
+            />
 
             {/* Próximas contas */}
             {upcoming.length > 0 && (
@@ -148,7 +157,7 @@ export function Dashboard() {
         </>
       )}
 
-      {showModal && <TransactionModal defaultType={modalType} onClose={() => {
+      {showModal && <TransactionModal defaultType={modalType} defaultIsSavings={modalIsSavings} onClose={() => {
         setShowModal(false)
         // reload after adding
         if (!user) return
@@ -165,23 +174,30 @@ export function Dashboard() {
   )
 }
 
-function QuickActions({ onExpense, onIncome }: { onExpense: () => void; onIncome: () => void }) {
+function QuickActions({ onExpense, onIncome, onSavings }: {
+  onExpense: () => void
+  onIncome: () => void
+  onSavings: () => void
+}) {
   return (
-    <div className="px-5 flex gap-2.5">
-      <button onClick={onExpense} className="flex-1 flex items-center justify-center gap-2 py-3 rounded-2xl border border-[#252525] bg-[#161616] text-sm font-medium text-zinc-300 hover:border-zinc-500 active:scale-95 transition-all">
-        <div className="w-6 h-6 rounded-lg bg-red-500/10 flex items-center justify-center">
-          <ArrowDownCircle size={13} className="text-red-400" />
+    <div className="px-5 flex gap-2 flex-wrap">
+      <button onClick={onExpense} className="flex-1 min-w-0 flex items-center justify-center gap-1.5 py-3 rounded-2xl border border-[#252525] bg-[#161616] text-xs font-medium text-zinc-300 hover:border-zinc-500 active:scale-95 transition-all">
+        <div className="w-5 h-5 rounded-lg bg-red-500/10 flex items-center justify-center shrink-0">
+          <ArrowDownCircle size={12} className="text-red-400" />
         </div>
         Novo gasto
       </button>
-      <button onClick={onIncome} className="flex-1 flex items-center justify-center gap-2 py-3 rounded-2xl border border-[#252525] bg-[#161616] text-sm font-medium text-zinc-300 hover:border-zinc-500 active:scale-95 transition-all">
-        <div className="w-6 h-6 rounded-lg bg-green-500/10 flex items-center justify-center">
-          <ArrowUpCircle size={13} className="text-green-400" />
+      <button onClick={onSavings} className="flex-1 min-w-0 flex items-center justify-center gap-1.5 py-3 rounded-2xl border border-[#252525] bg-[#161616] text-xs font-medium text-zinc-300 hover:border-blue-500/40 active:scale-95 transition-all">
+        <div className="w-5 h-5 rounded-lg bg-blue-500/10 flex items-center justify-center shrink-0">
+          <PiggyBank size={12} className="text-blue-400" />
+        </div>
+        Poupança
+      </button>
+      <button onClick={onIncome} className="flex-1 min-w-0 flex items-center justify-center gap-1.5 py-3 rounded-2xl border border-[#252525] bg-[#161616] text-xs font-medium text-zinc-300 hover:border-zinc-500 active:scale-95 transition-all">
+        <div className="w-5 h-5 rounded-lg bg-green-500/10 flex items-center justify-center shrink-0">
+          <ArrowUpCircle size={12} className="text-green-400" />
         </div>
         Nova receita
-      </button>
-      <button onClick={onExpense} className="w-12 flex items-center justify-center rounded-2xl border border-[#252525] bg-[#161616] text-zinc-400 hover:border-zinc-500 active:scale-95 transition-all">
-        <Plus size={18} />
       </button>
     </div>
   )

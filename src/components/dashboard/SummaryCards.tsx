@@ -1,13 +1,14 @@
-import { TrendingUp, TrendingDown } from 'lucide-react'
+import { TrendingUp, TrendingDown, PiggyBank } from 'lucide-react'
 import { formatCurrency } from '../../lib/utils'
 
 interface Props {
   balance: number
   income: number
   expense: number
+  savings?: number
 }
 
-export function SummaryCards({ balance, income, expense }: Props) {
+export function SummaryCards({ balance, income, expense, savings = 0 }: Props) {
   const isPositive = balance >= 0
 
   return (
@@ -47,6 +48,20 @@ export function SummaryCards({ balance, income, expense }: Props) {
               <p className="text-sm font-semibold text-red-400">{formatCurrency(expense)}</p>
             </div>
           </div>
+          {savings > 0 && (
+            <>
+              <div className="w-px bg-[#252525]" />
+              <div className="flex-1 flex items-center gap-2.5">
+                <div className="w-8 h-8 rounded-xl bg-blue-500/10 flex items-center justify-center shrink-0">
+                  <PiggyBank size={14} className="text-blue-400" />
+                </div>
+                <div>
+                  <p className="text-[10px] text-zinc-600 uppercase tracking-wide font-medium">Poupança</p>
+                  <p className="text-sm font-semibold text-blue-400">{formatCurrency(savings)}</p>
+                </div>
+              </div>
+            </>
+          )}
         </div>
       </div>
     </div>
