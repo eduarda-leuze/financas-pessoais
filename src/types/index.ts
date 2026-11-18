@@ -42,6 +42,10 @@ export interface Transaction {
   is_bill?: boolean
   notes?: string
   created_at?: string
+  // recurrence
+  recurring_group_id?: string | null
+  installment_number?: number | null
+  total_installments?: number | null
   category?: Category
   account?: Account
 }

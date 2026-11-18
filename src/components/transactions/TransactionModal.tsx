@@ -1,11 +1,14 @@
 import { useState, useEffect } from 'react'
-import { X, ArrowDownCircle, ArrowUpCircle, Trash2, Receipt, ShoppingBag, PiggyBank } from 'lucide-react'
+import { X, ArrowDownCircle, ArrowUpCircle, Trash2, Receipt, ShoppingBag, PiggyBank, RefreshCw } from 'lucide-react'
 import { useApp } from '../../context/AppContext'
 import { supabase } from '../../lib/supabase'
+import { v4 as uuidv4 } from '../../lib/uuid'
+
 import { getCurrentMonthYear } from '../../lib/utils'
 import type { Transaction, TransactionType } from '../../types'
 
 type Mode = 'expense' | 'savings' | 'income'
+type Recurrence = 'once' | 'monthly' | 'installment'
 
 interface Props {
   onClose: () => void
@@ -18,10 +21,9 @@ interface Props {
 }
 
 export function TransactionModal({ onClose, defaultType = 'expense', defaultIsBill = false, defaultIsSavings = false, forceMonth, forceYear, transaction }: Props) {
-  const { categories, addTransaction, updateTransaction, deleteTransaction, currentMonth, currentYear } = useApp()
+  const { categories, addTransaction, bulkImport, updateTransaction, deleteTransaction, currentMonth, currentYear } = useApp()
   const isEdit = !!transaction
 
-  // Derive initial mode from transaction or defaults
   const initMode = (): Mode => {
     if (transaction) {
       if (transaction.type === 'income') return 'income'
@@ -34,13 +36,15 @@ export function TransactionModal({ onClose, defaultType = 'expense', defaultIsBi
     return 'expense'
   }
 
-  const [mode, setMode]           = useState<Mode>(initMode)
-  const [isBill, setIsBill]       = useState<boolean>(transaction?.is_bill ?? defaultIsBill)
+  const [mode, setMode]               = useState<Mode>(initMode)
+  const [isBill, setIsBill]           = useState<boolean>(transaction?.is_bill ?? defaultIsBill)
+  const [recurrence, setRecurrence]   = useState<Recurrence>('once')
+  const [installments, setInstallments] = useState('12')
   const [description, setDescription] = useState(transaction?.description ?? '')
-  const [amount, setAmount]       = useState(transaction ? String(transaction.amount) : '')
-  const [categoryId, setCategoryId] = useState(transaction?.category_id ?? '')
-  const [dueDate, setDueDate]     = useState(transaction?.due_date ?? '')
-  const [status, setStatus]       = useState<'pending' | 'paid'>(
+  const [amount, setAmount]           = useState(transaction ? String(transaction.amount) : '')
+  const [categoryId, setCategoryId]   = useState(transaction?.category_id ?? '')
+  const [dueDate, setDueDate]         = useState(transaction?.due_date ?? '')
+  const [status, setStatus]           = useState<'pending' | 'paid'>(
     transaction?.status === 'paid' ? 'paid' : 'pending'
   )
   const [saving, setSaving]       = useState(false)
@@ -48,7 +52,6 @@ export function TransactionModal({ onClose, defaultType = 'expense', defaultIsBi
 
   const { month, year } = getCurrentMonthYear()
 
-  // Derived values from mode
   const type: TransactionType = mode === 'income' ? 'income' : 'expense'
   const isSavingsMode = mode === 'savings'
 
@@ -56,18 +59,21 @@ export function TransactionModal({ onClose, defaultType = 'expense', defaultIsBi
     ? categories.filter(c => c.type === 'savings')
     : categories.filter(c => c.type === type)
 
-  // Reset category when mode changes
   useEffect(() => {
     if (!isEdit) setCategoryId('')
     if (mode !== 'expense') setIsBill(false)
   }, [mode, isEdit])
 
-  // Auto-select first savings category when switching to savings mode
   useEffect(() => {
     if (isSavingsMode && !isEdit && filteredCats.length > 0 && !categoryId) {
       setCategoryId(filteredCats[0].id)
     }
   }, [isSavingsMode, filteredCats, isEdit, categoryId])
+
+  // Reset recurrence when switching away from bill mode
+  useEffect(() => {
+    if (!isBill) setRecurrence('once')
+  }, [isBill])
 
   const saveKeywordRule = async (desc: string, catId: string) => {
     if (!catId) return
@@ -78,31 +84,95 @@ export function TransactionModal({ onClose, defaultType = 'expense', defaultIsBi
     await supabase.from('categories').update({ keywords: [...cat.keywords, desc.trim()] }).eq('id', catId)
   }
 
+  // Add N months to a YYYY-MM-DD date, returning YYYY-MM-DD
+  const addMonths = (dateStr: string, n: number): { date: string; month: number; year: number } => {
+    if (!dateStr) {
+      const today = new Date()
+      today.setMonth(today.getMonth() + n)
+      return {
+        date: today.toISOString().slice(0, 10),
+        month: today.getMonth() + 1,
+        year: today.getFullYear(),
+      }
+    }
+    const d = new Date(dateStr + 'T00:00:00')
+    d.setMonth(d.getMonth() + n)
+    return {
+      date: d.toISOString().slice(0, 10),
+      month: d.getMonth() + 1,
+      year: d.getFullYear(),
+    }
+  }
+
   const handleSave = async () => {
     if (!description.trim() || !amount) return
     setSaving(true)
     const effectiveStatus = (type === 'expense' && !isBill) ? 'paid' : status
     const descTrimmed = description.trim()
+    const amountNum = parseFloat(amount.replace(',', '.'))
     if (categoryId) await saveKeywordRule(descTrimmed, categoryId)
-    const payload = {
+
+    const baseMonth = forceMonth ?? currentMonth ?? month
+    const baseYear  = forceYear  ?? currentYear  ?? year
+
+    if (isEdit) {
+      await updateTransaction(transaction.id, {
+        description: descTrimmed,
+        amount: amountNum,
+        type,
+        status: effectiveStatus,
+        is_bill: isBill,
+        category_id: categoryId,
+        due_date: dueDate || undefined,
+      })
+      setSaving(false)
+      onClose()
+      return
+    }
+
+    // ── Recurring / installment logic ─────────────────────────────────────
+    if (isBill && recurrence !== 'once') {
+      const groupId = uuidv4()
+      const count = recurrence === 'monthly' ? 12 : Math.max(1, parseInt(installments) || 12)
+      const isInstallment = recurrence === 'installment'
+
+      const rows = Array.from({ length: count }, (_, i) => {
+        const { date: dd, month: m, year: y } = addMonths(dueDate, i)
+        return {
+          description: isInstallment ? `${descTrimmed} (${i + 1}/${count})` : descTrimmed,
+          amount: amountNum,
+          type,
+          status: i === 0 ? effectiveStatus : 'pending' as const,
+          is_bill: true,
+          category_id: categoryId,
+          due_date: dd,
+          month: m,
+          year: y,
+          source: 'manual' as const,
+          recurring_group_id: groupId,
+          installment_number: isInstallment ? i + 1 : null,
+          total_installments: isInstallment ? count : null,
+        }
+      })
+
+      await bulkImport(rows)
+      setSaving(false)
+      onClose()
+      return
+    }
+
+    await addTransaction({
       description: descTrimmed,
-      amount: parseFloat(amount.replace(',', '.')),
+      amount: amountNum,
       type,
       status: effectiveStatus,
       is_bill: isBill,
       category_id: categoryId,
       due_date: dueDate || undefined,
-    }
-    if (isEdit) {
-      await updateTransaction(transaction.id, payload)
-    } else {
-      await addTransaction({
-        ...payload,
-        month: forceMonth ?? currentMonth ?? month,
-        year: forceYear ?? currentYear ?? year,
-        source: 'manual',
-      })
-    }
+      month: baseMonth,
+      year: baseYear,
+      source: 'manual',
+    })
     setSaving(false)
     onClose()
   }
@@ -111,12 +181,12 @@ export function TransactionModal({ onClose, defaultType = 'expense', defaultIsBi
     <div className="fixed inset-0 z-50 flex items-end justify-center lg:items-center px-0 lg:px-4" onClick={onClose}>
       <div className="absolute inset-0 bg-black/60" />
       <div
-        className="relative w-full max-w-md rounded-t-3xl lg:rounded-3xl border border-[#252525] overflow-hidden"
+        className="relative w-full max-w-md rounded-t-3xl lg:rounded-3xl border border-[#252525] overflow-hidden max-h-[92dvh] overflow-y-auto"
         style={{ background: '#141414' }}
         onClick={e => e.stopPropagation()}
       >
         {/* Handle */}
-        <div className="flex justify-center pt-3 pb-1">
+        <div className="flex justify-center pt-3 pb-1 sticky top-0 bg-[#141414] z-10">
           <div className="w-10 h-1 rounded-full bg-[#333]" />
         </div>
 
@@ -130,7 +200,7 @@ export function TransactionModal({ onClose, defaultType = 'expense', defaultIsBi
           </button>
         </div>
 
-        {/* Mode toggle: Gasto | Poupança | Receita */}
+        {/* Mode toggle */}
         <div className="px-5 mb-4">
           <div className="flex bg-[#1a1a1a] rounded-2xl p-1 border border-[#252525]">
             <button
@@ -163,7 +233,7 @@ export function TransactionModal({ onClose, defaultType = 'expense', defaultIsBi
           </div>
         </div>
 
-        {/* Bill toggle — only for expenses (not savings) */}
+        {/* Bill toggle */}
         {mode === 'expense' && (
           <div className="px-5 mb-4">
             <div className="flex bg-[#1a1a1a] rounded-2xl p-1 border border-[#252525]">
@@ -186,6 +256,49 @@ export function TransactionModal({ onClose, defaultType = 'expense', defaultIsBi
                 Conta a pagar
               </button>
             </div>
+          </div>
+        )}
+
+        {/* Recurrence — only for bills, only on creation */}
+        {mode === 'expense' && isBill && !isEdit && (
+          <div className="px-5 mb-4">
+            <label className="text-xs text-zinc-500 font-medium mb-2 block flex items-center gap-1.5">
+              <RefreshCw size={11} />
+              Repetição
+            </label>
+            <div className="flex bg-[#1a1a1a] rounded-2xl p-1 border border-[#252525]">
+              {(['once', 'monthly', 'installment'] as Recurrence[]).map(r => (
+                <button
+                  key={r}
+                  onClick={() => setRecurrence(r)}
+                  className={`flex-1 py-2 rounded-xl text-xs font-medium transition-all ${
+                    recurrence === r ? 'bg-[#252525] text-white' : 'text-zinc-600'
+                  }`}
+                >
+                  {r === 'once' ? 'Única' : r === 'monthly' ? 'Mensal' : 'Parcelada'}
+                </button>
+              ))}
+            </div>
+            {recurrence === 'installment' && (
+              <div className="mt-2 flex items-center gap-2">
+                <label className="text-xs text-zinc-500 shrink-0">Total de parcelas:</label>
+                <input
+                  type="number"
+                  min="2"
+                  max="120"
+                  value={installments}
+                  onChange={e => setInstallments(e.target.value)}
+                  className="w-20 bg-[#1a1a1a] border border-[#252525] rounded-lg px-3 py-1.5 text-xs text-white focus:outline-none focus:border-zinc-500 text-center"
+                />
+                <span className="text-xs text-zinc-600">meses</span>
+              </div>
+            )}
+            {recurrence === 'monthly' && (
+              <p className="text-[11px] text-zinc-600 mt-1.5 flex items-center gap-1">
+                <RefreshCw size={10} className="text-green-500" />
+                Será criada automaticamente por 12 meses
+              </p>
+            )}
           </div>
         )}
 
@@ -241,7 +354,7 @@ export function TransactionModal({ onClose, defaultType = 'expense', defaultIsBi
 
             <div>
               <label className="text-xs text-zinc-500 font-medium mb-1.5 block">
-                {mode === 'income' ? 'Data de recebimento' : isBill ? 'Vencimento' : 'Data'}
+                {mode === 'income' ? 'Data de recebimento' : isBill ? 'Vencimento (1ª)' : 'Data'}
               </label>
               <input
                 type="date"
@@ -281,30 +394,21 @@ export function TransactionModal({ onClose, defaultType = 'expense', defaultIsBi
                 : 'bg-green-500 hover:bg-green-400 text-black'
             }`}
           >
-            {saving ? 'Salvando...' : isEdit ? 'Salvar alterações' : mode === 'savings' ? 'Guardar poupança' : 'Salvar'}
+            {saving ? 'Salvando...' : isEdit ? 'Salvar alterações' : mode === 'savings' ? 'Guardar poupança' : recurrence === 'monthly' ? 'Criar mensal (12 meses)' : recurrence === 'installment' ? `Criar ${installments || '?'} parcelas` : 'Salvar'}
           </button>
 
           {isEdit && (
             confirmDelete ? (
               <div className="flex gap-2">
-                <button
-                  onClick={() => setConfirmDelete(false)}
-                  className="flex-1 py-2.5 rounded-xl bg-[#1a1a1a] border border-[#252525] text-zinc-500 text-xs font-medium"
-                >
+                <button onClick={() => setConfirmDelete(false)} className="flex-1 py-2.5 rounded-xl bg-[#1a1a1a] border border-[#252525] text-zinc-500 text-xs font-medium">
                   Cancelar
                 </button>
-                <button
-                  onClick={async () => { await deleteTransaction(transaction!.id); onClose() }}
-                  className="flex-1 py-2.5 rounded-xl bg-red-500/15 border border-red-500/25 text-red-400 text-xs font-semibold"
-                >
+                <button onClick={async () => { await deleteTransaction(transaction!.id); onClose() }} className="flex-1 py-2.5 rounded-xl bg-red-500/15 border border-red-500/25 text-red-400 text-xs font-semibold">
                   Confirmar exclusão
                 </button>
               </div>
             ) : (
-              <button
-                onClick={() => setConfirmDelete(true)}
-                className="w-full flex items-center justify-center gap-1.5 py-2 text-xs text-zinc-600 hover:text-red-400 transition-colors"
-              >
+              <button onClick={() => setConfirmDelete(true)} className="w-full flex items-center justify-center gap-1.5 py-2 text-xs text-zinc-600 hover:text-red-400 transition-colors">
                 <Trash2 size={12} />
                 Excluir lançamento
               </button>
@@ -315,3 +419,4 @@ export function TransactionModal({ onClose, defaultType = 'expense', defaultIsBi
     </div>
   )
 }
+

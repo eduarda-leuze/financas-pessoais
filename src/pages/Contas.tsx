@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { Check, Plus, ChevronDown, ChevronUp, Calendar } from 'lucide-react'
+import { Check, Plus, ChevronDown, ChevronUp, Calendar, RefreshCw } from 'lucide-react'
 import { useApp } from '../context/AppContext'
 import { PageHeader } from '../components/layout/PageHeader'
 import { TransactionModal } from '../components/transactions/TransactionModal'
@@ -195,9 +195,20 @@ export function Contas() {
                           {t.category.icon} {t.category.name}
                         </span>
                       )}
-                      {label && (
+                        {label && (
                         <span className={`text-[10px] font-medium ${label.color}`}>
                           {label.text}
+                        </span>
+                      )}
+                      {t.installment_number && t.total_installments && (
+                        <span className="text-[10px] font-medium px-1.5 py-0.5 rounded-full bg-purple-500/10 text-purple-400">
+                          {t.installment_number}/{t.total_installments}x
+                        </span>
+                      )}
+                      {t.recurring_group_id && !t.installment_number && (
+                        <span className="text-[10px] font-medium px-1.5 py-0.5 rounded-full bg-green-500/10 text-green-500 flex items-center gap-0.5">
+                          <RefreshCw size={8} />
+                          mensal
                         </span>
                       )}
                     </div>
