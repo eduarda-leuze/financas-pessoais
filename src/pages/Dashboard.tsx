@@ -24,7 +24,7 @@ const MONTH_NAMES = [
 ]
 
 export function Dashboard() {
-  const { categories } = useApp()
+  useApp()
   const { user } = useAuth()
   const { prevIncome, prevExpense, upcoming, loadingExtras } = useDashboardExtras(THIS_MONTH, THIS_YEAR)
 
