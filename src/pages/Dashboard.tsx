@@ -77,7 +77,7 @@ export function Dashboard() {
         <>
           {/* ── MOBILE layout ── */}
           <div className="lg:hidden space-y-4 pb-24">
-            <SummaryCards balance={balance} income={income} expense={expense} savings={savings} />
+            <SummaryCards balance={balance} income={income} expense={expense} savings={savings} onSavingsClick={() => openModal('expense', true)} />
             <QuickActions
               onExpense={() => openModal('expense')}
               onIncome={() => openModal('income')}

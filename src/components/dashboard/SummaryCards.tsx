@@ -6,9 +6,10 @@ interface Props {
   income: number
   expense: number
   savings?: number
+  onSavingsClick?: () => void
 }
 
-export function SummaryCards({ balance, income, expense, savings = 0 }: Props) {
+export function SummaryCards({ balance, income, expense, savings = 0, onSavingsClick }: Props) {
   const isPositive = balance >= 0
 
   return (
@@ -48,20 +49,21 @@ export function SummaryCards({ balance, income, expense, savings = 0 }: Props) {
               <p className="text-sm font-semibold text-red-400">{formatCurrency(expense)}</p>
             </div>
           </div>
-          {savings > 0 && (
-            <>
-              <div className="w-px bg-[#252525]" />
-              <div className="flex-1 flex items-center gap-2.5">
-                <div className="w-8 h-8 rounded-xl bg-blue-500/10 flex items-center justify-center shrink-0">
-                  <PiggyBank size={14} className="text-blue-400" />
-                </div>
-                <div>
-                  <p className="text-[10px] text-zinc-600 uppercase tracking-wide font-medium">Poupança</p>
-                  <p className="text-sm font-semibold text-blue-400">{formatCurrency(savings)}</p>
-                </div>
-              </div>
-            </>
-          )}
+          <div className="w-px bg-[#252525]" />
+          <button
+            onClick={onSavingsClick}
+            className="flex-1 flex items-center gap-2.5 rounded-xl transition-colors hover:bg-blue-500/5 active:scale-95 -mx-1 px-1 py-0.5"
+          >
+            <div className="w-8 h-8 rounded-xl bg-blue-500/10 flex items-center justify-center shrink-0">
+              <PiggyBank size={14} className="text-blue-400" />
+            </div>
+            <div className="text-left">
+              <p className="text-[10px] text-zinc-600 uppercase tracking-wide font-medium">Poupança</p>
+              <p className={`text-sm font-semibold ${savings > 0 ? 'text-blue-400' : 'text-zinc-600'}`}>
+                {savings > 0 ? formatCurrency(savings) : '+ adicionar'}
+              </p>
+            </div>
+          </button>
         </div>
       </div>
     </div>
