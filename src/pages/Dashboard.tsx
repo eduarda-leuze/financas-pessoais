@@ -157,7 +157,7 @@ export function Dashboard() {
         </>
       )}
 
-      {showModal && <TransactionModal defaultType={modalType} defaultIsSavings={modalIsSavings} onClose={() => {
+      {showModal && <TransactionModal defaultType={modalType} defaultIsSavings={modalIsSavings} forceMonth={THIS_MONTH} forceYear={THIS_YEAR} onClose={() => {
         setShowModal(false)
         // reload after adding
         if (!user) return

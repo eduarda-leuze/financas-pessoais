@@ -12,10 +12,12 @@ interface Props {
   defaultType?: TransactionType
   defaultIsBill?: boolean
   defaultIsSavings?: boolean
+  forceMonth?: number
+  forceYear?: number
   transaction?: Transaction
 }
 
-export function TransactionModal({ onClose, defaultType = 'expense', defaultIsBill = false, defaultIsSavings = false, transaction }: Props) {
+export function TransactionModal({ onClose, defaultType = 'expense', defaultIsBill = false, defaultIsSavings = false, forceMonth, forceYear, transaction }: Props) {
   const { categories, addTransaction, updateTransaction, deleteTransaction, currentMonth, currentYear } = useApp()
   const isEdit = !!transaction
 
@@ -96,8 +98,8 @@ export function TransactionModal({ onClose, defaultType = 'expense', defaultIsBi
     } else {
       await addTransaction({
         ...payload,
-        month: currentMonth || month,
-        year: currentYear || year,
+        month: forceMonth ?? currentMonth ?? month,
+        year: forceYear ?? currentYear ?? year,
         source: 'manual',
       })
     }

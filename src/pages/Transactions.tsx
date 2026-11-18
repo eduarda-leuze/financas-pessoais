@@ -25,12 +25,14 @@ export function Transactions() {
   const { transactions, loading } = useApp()
   const [showModal, setShowModal] = useState(false)
   const [filterStatus, setFilterStatus] = useState<TransactionStatus | 'all'>('all')
-  const [filterType, setFilterType] = useState<TransactionType | 'all'>('all')
+  const [filterType, setFilterType] = useState<TransactionType | 'all' | 'savings'>('all')
 
   const filtered = transactions
     .filter(t => {
       if (filterStatus !== 'all' && t.status !== filterStatus) return false
-      if (filterType !== 'all' && t.type !== filterType) return false
+      if (filterType === 'savings') return t.category?.type === 'savings'
+      if (filterType === 'expense') return t.type === 'expense' && t.category?.type !== 'savings'
+      if (filterType === 'income') return t.type === 'income'
       return true
     })
     .sort((a, b) => sortKey(b).localeCompare(sortKey(a)))
@@ -59,9 +61,10 @@ export function Transactions() {
   ]
 
   const typeFilters = [
-    { v: 'all' as const,     label: 'Todos'    },
-    { v: 'expense' as const, label: 'Gastos'   },
-    { v: 'income' as const,  label: 'Receitas' },
+    { v: 'all' as const,      label: 'Todos'    },
+    { v: 'expense' as const,  label: 'Gastos'   },
+    { v: 'savings' as const,  label: 'Poupança' },
+    { v: 'income' as const,   label: 'Receitas' },
   ]
 
   return (
