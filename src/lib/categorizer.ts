@@ -185,5 +185,6 @@ export function getDefaultCategories(userId: string): Omit<import('../types').Ca
     { user_id: userId, name: 'OUTRAS',     type: 'expense', color: '#6b7280', icon: '📦', keywords: [] },
     { user_id: userId, name: 'Sem categoria', type: 'expense', color: '#374151', icon: '❓', keywords: [] },
     { user_id: userId, name: 'RECEITA',    type: 'income',  color: '#22c55e', icon: '💰', keywords: [] },
+    { user_id: userId, name: 'POUPANÇA',   type: 'savings', color: '#3b82f6', icon: '🐷', keywords: [] },
   ]
 }

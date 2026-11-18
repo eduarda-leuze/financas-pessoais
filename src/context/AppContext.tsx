@@ -42,7 +42,19 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       .order('name')
 
     if (data && data.length > 0) {
-      setCategories(data)
+      // Ensure at least one savings category exists for existing users
+      const hasSavings = data.some(c => c.type === 'savings')
+      if (!hasSavings) {
+        const { data: inserted } = await supabase
+          .from('categories')
+          .insert({ user_id: user.id, name: 'POUPANÇA', type: 'savings', color: '#3b82f6', icon: '🐷', keywords: [] })
+          .select()
+          .single()
+        if (inserted) setCategories([...data, inserted])
+        else setCategories(data)
+      } else {
+        setCategories(data)
+      }
     } else {
       // Seed default categories for new user
       const defaults = getDefaultCategories(user.id)
