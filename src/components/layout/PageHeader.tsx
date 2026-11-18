@@ -1,13 +1,15 @@
-import { ChevronLeft, ChevronRight } from 'lucide-react'
+import { ChevronLeft, ChevronRight, Settings } from 'lucide-react'
+import { Link } from 'react-router-dom'
 import { useApp } from '../../context/AppContext'
 import { formatMonthYear } from '../../lib/utils'
 
 interface Props {
   title?: string
   showMonthNav?: boolean
+  showSettings?: boolean
 }
 
-export function PageHeader({ title, showMonthNav }: Props) {
+export function PageHeader({ title, showMonthNav, showSettings }: Props) {
   const { currentMonth, currentYear, setCurrentMonth, setCurrentYear } = useApp()
 
   const prev = () => {
@@ -35,7 +37,17 @@ export function PageHeader({ title, showMonthNav }: Props) {
           </button>
         </>
       ) : (
-        <h1 className="text-lg font-semibold text-white">{title}</h1>
+        <>
+          <h1 className="text-lg font-semibold text-white">{title}</h1>
+          {showSettings && (
+            <Link
+              to="/configuracoes"
+              className="lg:hidden w-9 h-9 flex items-center justify-center rounded-xl bg-[#161616] border border-[#252525] text-zinc-400 hover:text-white active:scale-95 transition-all"
+            >
+              <Settings size={16} />
+            </Link>
+          )}
+        </>
       )}
     </div>
   )

@@ -62,7 +62,7 @@ export function Dashboard() {
   return (
     <div className="pb-2">
       {/* Fixed month label — no navigation */}
-      <PageHeader title={`${MONTH_NAMES[THIS_MONTH - 1]} ${THIS_YEAR}`} />
+      <PageHeader title={`${MONTH_NAMES[THIS_MONTH - 1]} ${THIS_YEAR}`} showSettings />
 
       {isLoading ? (
         <div className="flex justify-center py-16">
