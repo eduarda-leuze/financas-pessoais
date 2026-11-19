@@ -9,7 +9,7 @@ export function AppLayout() {
 
       {/* Main content — offset by sidebar width on desktop */}
       <div className="lg:ml-56 min-h-dvh">
-        <div className="max-w-lg mx-auto lg:max-w-none lg:mx-0 pb-[72px] lg:pb-0">
+        <div className="max-w-lg mx-auto lg:max-w-none lg:mx-0 lg:pb-0" style={{ paddingBottom: 'calc(4.5rem + env(safe-area-inset-bottom))' }}>
           <Outlet />
         </div>
       </div>

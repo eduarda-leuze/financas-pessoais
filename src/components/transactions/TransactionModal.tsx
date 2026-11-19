@@ -358,7 +358,7 @@ export function TransactionModal({ onClose, defaultType = 'expense', defaultIsBi
         )}
 
         {/* Fields */}
-        <div className="px-5 space-y-3" style={{ paddingBottom: 'calc(1.5rem + env(safe-area-inset-bottom))' }}>
+        <div className="px-5 space-y-3 pb-6" style={{ paddingBottom: 'calc(1.5rem + env(safe-area-inset-bottom))' }}>
           <div>
             <label className="text-xs text-zinc-500 font-medium mb-1.5 block">Descrição</label>
             <input

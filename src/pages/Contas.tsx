@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { Check, Plus, ChevronDown, ChevronUp, Calendar, RefreshCw, Pencil } from 'lucide-react'
+import { Check, Plus, ChevronDown, ChevronUp, Calendar, RefreshCw, Pencil, Trash2, X } from 'lucide-react'
 import { useApp } from '../context/AppContext'
 import { PageHeader } from '../components/layout/PageHeader'
 import { TransactionModal } from '../components/transactions/TransactionModal'
@@ -35,12 +35,13 @@ const STATUS_LABEL: Record<string, string> = {
 }
 
 export function Contas() {
-  const { transactions, markAsPaid, loading } = useApp()
+  const { transactions, markAsPaid, deleteTransaction, loading } = useApp()
   const [filter, setFilter]   = useState<TransactionStatus | 'all'>('all')
   const [showModal, setShowModal] = useState(false)
   const [editTx, setEditTx]   = useState<Transaction | null>(null)
   const [expanded, setExpanded] = useState<string | null>(null)
   const [marking, setMarking] = useState<string | null>(null)
+  const [confirmDelete, setConfirmDelete] = useState<string | null>(null)
 
   // only fixed bills (explicitly marked as conta a pagar)
   const bills = transactions.filter(t => t.type === 'expense' && t.is_bill === true)
@@ -277,13 +278,42 @@ export function Contas() {
                         </div>
                       )}
                     </div>
-                    <button
-                      onClick={e => { e.stopPropagation(); setEditTx(t); setExpanded(null) }}
-                      className="w-full flex items-center justify-center gap-1.5 py-2 rounded-xl bg-[#1e1e1e] border border-[#2a2a2a] text-xs font-medium text-zinc-400 hover:text-white hover:border-zinc-500 transition-all active:scale-[0.98]"
-                    >
-                      <Pencil size={11} />
-                      Editar conta
-                    </button>
+                    {/* Action buttons */}
+                    {confirmDelete === t.id ? (
+                      <div className="flex gap-2">
+                        <button
+                          onClick={e => { e.stopPropagation(); setConfirmDelete(null) }}
+                          className="flex-1 flex items-center justify-center gap-1.5 py-2.5 rounded-xl bg-[#1e1e1e] border border-[#2a2a2a] text-xs text-zinc-500 active:scale-[0.98] transition-all"
+                        >
+                          <X size={11} />
+                          Cancelar
+                        </button>
+                        <button
+                          onClick={async e => { e.stopPropagation(); await deleteTransaction(t.id); setConfirmDelete(null); setExpanded(null) }}
+                          className="flex-1 flex items-center justify-center gap-1.5 py-2.5 rounded-xl bg-red-500/15 border border-red-500/25 text-xs text-red-400 font-semibold active:scale-[0.98] transition-all"
+                        >
+                          <Trash2 size={11} />
+                          Confirmar
+                        </button>
+                      </div>
+                    ) : (
+                      <div className="flex gap-2">
+                        <button
+                          onClick={e => { e.stopPropagation(); setEditTx(t); setExpanded(null) }}
+                          className="flex-1 flex items-center justify-center gap-1.5 py-2.5 rounded-xl bg-[#1e1e1e] border border-[#2a2a2a] text-xs font-medium text-zinc-400 active:scale-[0.98] transition-all"
+                        >
+                          <Pencil size={11} />
+                          Editar
+                        </button>
+                        <button
+                          onClick={e => { e.stopPropagation(); setConfirmDelete(t.id) }}
+                          className="flex-1 flex items-center justify-center gap-1.5 py-2.5 rounded-xl bg-[#1e1e1e] border border-[#2a2a2a] text-xs font-medium text-zinc-600 active:text-red-400 active:border-red-500/25 active:scale-[0.98] transition-all"
+                        >
+                          <Trash2 size={11} />
+                          Excluir
+                        </button>
+                      </div>
+                    )}
                   </div>
                 )}
               </div>

@@ -145,7 +145,8 @@ export function Transactions() {
 
       <button
         onClick={() => setShowModal(true)}
-        className="fixed bottom-24 right-5 z-30 w-14 h-14 rounded-2xl bg-green-500 shadow-lg shadow-green-500/20 flex items-center justify-center active:scale-95 transition-transform lg:bottom-6"
+        style={{ bottom: 'calc(5rem + env(safe-area-inset-bottom))' }}
+        className="fixed right-5 z-30 w-14 h-14 rounded-2xl bg-green-500 shadow-lg shadow-green-500/20 flex items-center justify-center active:scale-95 transition-transform lg:bottom-6"
       >
         <Plus size={22} className="text-black" strokeWidth={2.5} />
       </button>
